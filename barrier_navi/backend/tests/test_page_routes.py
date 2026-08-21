@@ -27,6 +27,24 @@ class PageRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"API_BASE_URL", response.data)
 
+        metrics_response = self.client.get("/dist/metrics.js")
+        self.assertEqual(metrics_response.status_code, 200)
+        self.assertIn(b"BODY_METRICS", metrics_response.data)
+
+    def test_api_dependent_page_scripts_are_loaded_as_es_modules(self):
+        expected_scripts = {
+            "/": b'type="module" src="/dist/login.js"',
+            "/login": b'type="module" src="/dist/login.js"',
+            "/hearing": b'type="module" src="/dist/index.js"',
+            "/vision": b'type="module" src="/dist/index.js"',
+            "/profile": b'type="module" src="/dist/profile.js"',
+            "/detail": b'type="module" src="/dist/detail.js"',
+        }
+        for path, expected_script in expected_scripts.items():
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertIn(expected_script, response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

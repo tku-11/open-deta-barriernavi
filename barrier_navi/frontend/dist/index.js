@@ -1,86 +1,5 @@
 import { API_BASE_URL } from './api.js';
-const BODY_METRICS = [
-    // フラグ型（〇×で表せる項目）：設置されていれば1点
-    { key: 'step_response_status', label: '段差への対応', required: 1, type: 'flag' },
-    { key: 'has_guidance_system', label: '案内設備の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_accessible_restroom', label: '障害者対応型便所の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_accessible_gate', label: '障害者対応型改札口の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_fall_prevention', label: '転落防止のための設備の設置の有無', required: 1, type: 'flag' },
-    // 割合型（分子/分母の形式で表示、基準値以上の割合であれば1点）
-    { key: 'platform_ratio', label: '段差が解消されているプラットホームの割合', required: 0.8, type: 'ratio' },
-    { key: 'elevator_ratio', label: '移動等円滑化基準に適合しているエレベーターの割合', required: 0.8, type: 'ratio' },
-    { key: 'escalator_ratio', label: '移動等円滑化基準に適合しているエスカレーターの割合', required: 0.8, type: 'ratio' },
-    // 数値型（基準値以上であれば1点、未満なら0点）
-    { key: 'num_other_lifts', label: 'その他の昇降機の設置基数', required: 2, type: 'number' },
-    { key: 'num_slopes', label: '傾斜路の設置箇所数', required: 2, type: 'number' },
-    { key: 'num_compliant_slopes', label: '移動等円滑化基準に適合している傾斜路の設置箇所数', required: 2, type: 'number' },
-    { key: 'num_wheelchair_accessible_platforms', label: '車いす使用者の円滑な乗降が可能なプラットホームの数', required: 6, type: 'number' }
-];
-const HEARING_METRICS = [
-    // フラグ型（〇×で表せる項目）：設置されていれば1点
-    { key: 'has_guidance_system', label: '案内設備の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_accessible_restroom', label: '障害者対応型便所の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_accessible_gate', label: '障害者対応型改札口の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_fall_prevention', label: '転落防止のための設備の設置の有無', required: 1, type: 'flag' }
-];
-const VISION_METRICS = [
-    // フラグ型（〇×で表せる項目）：設置されていれば1点
-    { key: 'step_response_status', label: '段差への対応', required: 1, type: 'flag' },
-    { key: 'has_tactile_paving', label: '視覚障害者誘導用ブロックの設置の有無', required: 1, type: 'flag' },
-    { key: 'has_guidance_system', label: '案内設備の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_accessible_restroom', label: '障害者対応型便所の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_accessible_gate', label: '障害者対応型改札口の設置の有無', required: 1, type: 'flag' },
-    { key: 'has_fall_prevention', label: '転落防止のための設備の設置の有無', required: 1, type: 'flag' },
-    // 割合型（分子/分母の形式で表示、基準値以上の割合であれば1点）
-    { key: 'platform_ratio', label: '段差が解消されているプラットホームの割合', required: 0.8, type: 'ratio' },
-    // 数値型（基準値以上であれば1点、未満なら0点）
-    { key: 'num_compliant_elevators', label: '移動等円滑化基準に適合しているエレベーターの設置基数', required: 4, type: 'number' },
-    { key: 'num_compliant_escalators', label: '移動等円滑化基準に適合しているエスカレーターの設置基数', required: 4, type: 'number' },
-    { key: 'num_compliant_slopes', label: '移動等円滑化基準に適合している傾斜路の設置箇所数', required: 2, type: 'number' },
-];
-// プロフィールの優先機能とメトリックキーのマッピング
-const PREFERRED_FEATURE_TO_METRIC_KEY = {
-    'エレベーター': {
-        body: ['elevator_ratio'],
-        hearing: [],
-        vision: ['num_compliant_elevators']
-    },
-    'エスカレーター': {
-        body: ['escalator_ratio'],
-        hearing: [],
-        vision: ['num_compliant_escalators']
-    },
-    '障害者対応型改札口': {
-        body: ['has_accessible_gate'],
-        hearing: ['has_accessible_gate'],
-        vision: ['has_accessible_gate']
-    },
-    '障害者対応型便所': {
-        body: ['has_accessible_restroom'],
-        hearing: ['has_accessible_restroom'],
-        vision: ['has_accessible_restroom']
-    },
-    '案内設備': {
-        body: ['has_guidance_system'],
-        hearing: ['has_guidance_system'],
-        vision: ['has_guidance_system']
-    },
-    '転落防止設備': {
-        body: ['has_fall_prevention'],
-        hearing: ['has_fall_prevention'],
-        vision: ['has_fall_prevention']
-    },
-    '段差解消': {
-        body: ['step_response_status', 'platform_ratio'],
-        hearing: [],
-        vision: ['step_response_status', 'platform_ratio']
-    },
-    '車いす対応プラットフォーム': {
-        body: ['num_wheelchair_accessible_platforms'],
-        hearing: [],
-        vision: []
-    }
-};
+import { BODY_METRICS, HEARING_METRICS, metricKeysForPreferredFeature, VISION_METRICS, } from './metrics.js';
 class StationApp {
     constructor() {
         this.apiBaseUrl = API_BASE_URL;
@@ -282,10 +201,7 @@ class StationApp {
                 // 優先機能をメトリックキーに変換
                 const metricKeys = [];
                 data.data.preferred_features.forEach((feature) => {
-                    const mapping = PREFERRED_FEATURE_TO_METRIC_KEY[feature];
-                    if (mapping && mapping[this.currentMode]) {
-                        metricKeys.push(...mapping[this.currentMode]);
-                    }
+                    metricKeys.push(...metricKeysForPreferredFeature(feature, this.currentMode));
                 });
                 // 重複を除去
                 const uniqueMetricKeys = [...new Set(metricKeys)];
