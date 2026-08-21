@@ -456,7 +456,7 @@ class ProfilePage {
       const requestData = { ...data };
 
       const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
         },
