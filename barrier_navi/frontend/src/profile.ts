@@ -25,7 +25,7 @@ interface ApiResponse<T> {
 
 class ProfilePage {
   private apiBaseUrl = '/api';
-  private userId: string | null = null;
+  
   private favoriteStations: Array<{ id: number; name: string }> = [];
   private stationSearchTimeout: number | null = null;
 
@@ -41,14 +41,9 @@ class ProfilePage {
 
   private checkAuthStatus(): void {
     const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-    const userId = localStorage.getItem('userId');
-    
-    if (!isLoggedIn || !userId) {
+    if (!isLoggedIn) {
       window.location.href = '/login';
-      return;
     }
-    
-    this.userId = userId;
   }
 
   private setupEventListeners(): void {
@@ -256,17 +251,11 @@ class ProfilePage {
     const formEl = document.getElementById('profile-form') as HTMLElement;
     const errorEl = document.getElementById('error-message');
 
-    if (!this.userId) {
-      if (loadingEl) loadingEl.style.display = 'none';
-      if (errorEl) {
-        errorEl.textContent = 'ユーザーIDが取得できませんでした';
-        errorEl.style.display = 'block';
-      }
-      return;
-    }
+    
 
     try {
-      const response = await fetch(`${this.apiBaseUrl}/auth/profile?user_id=${this.userId}`, {
+            const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
+
         headers: {
           'Content-Type': 'application/json',
         },
@@ -276,10 +265,17 @@ class ProfilePage {
 
       if (loadingEl) loadingEl.style.display = 'none';
 
+            if (response.status === 401) {
+        this.clearClientAuth();
+        window.location.href = '/login';
+        return;
+      }
+
       if (data.success && data.data) {
         this.populateForm(data.data);
         if (formEl) formEl.style.display = 'block';
       } else {
+
         // プロフィールが存在しない場合、ユーザー情報のみ表示
         await this.loadUserInfo();
         if (formEl) formEl.style.display = 'block';
@@ -449,10 +445,7 @@ class ProfilePage {
     const saveBtn = document.querySelector('.save-btn') as HTMLButtonElement;
     const successEl = document.getElementById('save-success');
 
-    if (!this.userId) {
-      this.showError('ユーザーIDが取得できませんでした');
-      return;
-    }
+    
 
     if (saveBtn) {
       saveBtn.disabled = true;
@@ -460,10 +453,7 @@ class ProfilePage {
     }
 
     try {
-      const requestData = {
-        ...data,
-        user_id: parseInt(this.userId),
-      };
+      const requestData = { ...data };
 
       const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
         method: 'PUT',
@@ -505,7 +495,16 @@ class ProfilePage {
     }
   }
 
+    private clearClientAuth(): void {
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('isGuest');
+    localStorage.removeItem('username');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userEmail');
+  }
+
   private showError(message: string): void {
+
     const errorEl = document.getElementById('error-message');
     if (errorEl) {
       errorEl.textContent = message;

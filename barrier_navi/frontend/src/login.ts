@@ -3,7 +3,7 @@
  */
 
 class LoginPage {
-  private apiBaseUrl = 'http://localhost:5000/api';
+  private apiBaseUrl = '/api';
 
   constructor() {
     this.init();
@@ -24,7 +24,7 @@ class LoginPage {
       const isGuest = localStorage.getItem('isGuest') === 'true';
       
       if (isLoggedIn || isGuest) {
-        window.location.href = 'view/home.html';
+        window.location.href = '/home';
       }
     }
   }
@@ -46,7 +46,8 @@ class LoginPage {
     const forgotPasswordLink = document.getElementById('forgot-password-link');
     forgotPasswordLink?.addEventListener('click', (e) => {
       e.preventDefault();
-      this.showResetPasswordModal();
+      const errorMessage = document.getElementById('error-message');
+      this.showError(errorMessage, 'パスワードリセット機能は現在ご利用いただけません。');
     });
 
     // 新規作成モーダル
@@ -106,7 +107,7 @@ class LoginPage {
         if (response.user?.email) {
           localStorage.setItem('userEmail', response.user.email);
         }
-        window.location.href = 'view/home.html';
+        window.location.href = '/home';
       } else {
         // ログイン失敗
         this.showError(errorMessage, response.error || 'ログインに失敗しました');
@@ -147,7 +148,7 @@ class LoginPage {
   private handleGuestLogin(): void {
     localStorage.setItem('isGuest', 'true');
     localStorage.setItem('username', 'ゲスト');
-    window.location.href = 'view/home.html';
+    window.location.href = '/home';
   }
 
   private showSignupModal(): void {

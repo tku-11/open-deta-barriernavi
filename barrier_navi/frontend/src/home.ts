@@ -107,13 +107,21 @@ class HomePage {
     window.location.href = '/profile';
   }
 
-  private handleLogout(): void {
-    if (confirm('ログアウトしますか？')) {
+  private async handleLogout(): Promise<void> {
+    if (!confirm('ログアウトしますか？')) return;
+
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      // 通信に失敗しても、端末側の表示状態は必ず消去する。
+      console.error('Logout request failed:', error);
+    } finally {
       localStorage.removeItem('isLoggedIn');
       localStorage.removeItem('isGuest');
       localStorage.removeItem('username');
       localStorage.removeItem('rememberMe');
       localStorage.removeItem('userId');
+      localStorage.removeItem('userEmail');
       window.location.href = '/';
     }
   }

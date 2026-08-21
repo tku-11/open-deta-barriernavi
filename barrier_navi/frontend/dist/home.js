@@ -93,14 +93,24 @@ class HomePage {
         // プロフィール画面への遷移
         window.location.href = '/profile';
     }
-    handleLogout() {
-        if (confirm('ログアウトしますか？')) {
+    async handleLogout() {
+        if (!confirm('ログアウトしますか？'))
+            return;
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+        }
+        catch (error) {
+            // 通信に失敗しても、端末側の表示状態は必ず消去する。
+            console.error('Logout request failed:', error);
+        }
+        finally {
             localStorage.removeItem('isLoggedIn');
             localStorage.removeItem('isGuest');
             localStorage.removeItem('username');
             localStorage.removeItem('rememberMe');
             localStorage.removeItem('userId');
-            window.location.href = 'view/login.html';
+            localStorage.removeItem('userEmail');
+            window.location.href = '/';
         }
     }
     escapeHtml(text) {

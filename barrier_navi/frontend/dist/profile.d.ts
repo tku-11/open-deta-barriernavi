@@ -21,7 +21,6 @@ interface ApiResponse<T> {
 }
 declare class ProfilePage {
     private apiBaseUrl;
-    private userId;
     private favoriteStations;
     private stationSearchTimeout;
     constructor();
@@ -43,6 +42,7 @@ declare class ProfilePage {
     private loadFavoriteStationNamesFromNames;
     private handleSubmit;
     private saveProfile;
+    private clearClientAuth;
     private showError;
     private isValidEmail;
     private escapeHtml;

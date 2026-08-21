@@ -5,11 +5,16 @@ Flask APIサーバー - stationsデータベースからデータを提供
 import json
 import os
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import wraps
 
-from flask import Flask, jsonify, request, send_from_directory, send_file
+from flask import Flask, jsonify, request, send_from_directory, send_file, session
+
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
+
 from database_connection import DatabaseConnection
 import bcrypt
 import os
@@ -28,9 +33,70 @@ VIEW_DIR = os.path.join(FRONTEND_DIR, 'view')
 DIST_DIR = os.path.join(FRONTEND_DIR, 'dist')
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='')
-CORS(app)  # CORSを有効化してフロントエンドからのアクセスを許可
+
+# セッション署名鍵は環境変数で必須とする。起動ごとの自動生成は、
+# 再起動時に全利用者を強制ログアウトさせ、設定漏れも検知できないため採用しない。
+session_secret = os.getenv("FLASK_SECRET_KEY")
+if not session_secret:
+    raise RuntimeError("FLASK_SECRET_KEY を .env または環境変数に設定してください。")
+
+app.config.update(
+    SECRET_KEY=session_secret,
+    SESSION_COOKIE_NAME="barriernavi_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
+
+# 同一オリジン利用では CORS は不要。別オリジンのフロントエンドを使う場合のみ、
+# CORS_ALLOWED_ORIGINS にカンマ区切りで明示したオリジンを許可する。
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+if allowed_origins:
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": allowed_origins}},
+        supports_credentials=True,
+    )
+
+# ローカル開発では memory://、複数プロセス/本番では Redis 等の共有ストレージを指定する。
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
+)
+
+
+def api_error(message: str, status_code: int):
+
+    """利用者へ内部実装を露出しない統一エラー応答。"""
+    return jsonify({"success": False, "error": message}), status_code
+
+
+@app.errorhandler(429)
+def rate_limit_exceeded(_error):
+    return api_error("短時間に試行回数が上限に達しました。しばらくしてから再度お試しください", 429)
+
+
+def require_authenticated_user(view):
+
+    """ログイン済みセッションを必須にし、利用者IDをサーバー側で確定する。"""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user_id = session.get("user_id")
+        if not isinstance(user_id, int) or user_id <= 0:
+            return api_error("ログインが必要です", 401)
+        return view(*args, **kwargs)
+
+    return wrapped
+
 
 # MySQL接続情報（環境変数から取得）
+
 # 注意: パスワードは必ず.envファイルで設定してください
 MYSQL_CONFIG = {
     "host": os.getenv("MYSQL_HOST", "localhost"),
@@ -365,7 +431,7 @@ def get_stations_with_score(mode: str):
             "total_count": total_count
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 def get_station_detail_with_score(station_id: int, mode: str):
@@ -382,7 +448,7 @@ def get_station_detail_with_score(station_id: int, mode: str):
         detail = build_station_response(rows[0], mode=mode, include_details=True)
         return jsonify({"success": True, "data": detail})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations', methods=['GET'])
@@ -414,10 +480,7 @@ def get_stations():
             "count": len(stations)
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/<int:station_id>', methods=['GET'])
@@ -442,10 +505,7 @@ def get_station(station_id):
                 "error": "Station not found"
             }), 404
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/count', methods=['GET'])
@@ -461,10 +521,7 @@ def get_stations_count():
             "count": result[0]['total']
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/prefectures', methods=['GET'])
@@ -486,10 +543,7 @@ def get_prefectures():
             "data": prefectures
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/statistics', methods=['GET'])
@@ -514,10 +568,7 @@ def get_statistics():
             "data": stats[0] if stats else {}
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/averages', methods=['GET'])
@@ -660,10 +711,7 @@ def get_station_averages():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 def calculate_median(values: List[float]) -> float:
@@ -883,10 +931,7 @@ def get_station_medians():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/search', methods=['GET'])
@@ -915,10 +960,7 @@ def search_stations():
             "count": len(stations)
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/body/stations', methods=['GET'])
@@ -972,10 +1014,7 @@ def get_lines():
             "data": sorted(list(lines_set))
         })
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 # ==================== 静的ファイル提供 ====================
@@ -1033,104 +1072,91 @@ def dist_files(filename):
 # ==================== 認証関連API ====================
 
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
-    """ログイン処理"""
+
+    """ログイン処理と署名付きセッションの発行。"""
+    db = None
     try:
-        data = request.get_json()
-        username = data.get('username', '').strip()
-        password = data.get('password', '')
-        
+        data = request.get_json(silent=True) or {}
+        username = str(data.get('username', '')).strip()
+        password = str(data.get('password', ''))
+
         if not username or not password:
-            return jsonify({
-                "success": False,
-                "error": "ユーザー名とパスワードを入力してください"
-            }), 400
-        
+            return api_error("ユーザー名とパスワードを入力してください", 400)
+
         db = DatabaseConnection(**MYSQL_CONFIG)
-        
-        # ユーザー名またはメールアドレスで検索
-        # usersテーブルのカラム名を確認して適切に変更してください
-        user = db.execute_query(
+        users = db.execute_query(
             "SELECT * FROM users WHERE username = %s OR email = %s LIMIT 1",
-            (username, username)
+            (username, username),
         )
-        
-        if not user:
-            db.close()
-            return jsonify({
-                "success": False,
-                "error": "ユーザー名またはパスワードが正しくありません"
-            }), 401
-        
-        user = user[0]
-        
-        # パスワードの検証
-        # カラム名がpassword_hashの場合はそれを使用、passwordの場合はそれを使用
-        password_hash = user.get('password_hash') or user.get('password')
-        
+        if not users:
+            return api_error("ユーザー名またはパスワードが正しくありません", 401)
+
+        user = users[0]
+        password_hash = user.get('password_hash')
         if not password_hash:
-            db.close()
-            return jsonify({
-                "success": False,
-                "error": "パスワード情報が見つかりません"
-            }), 500
-        
-        # bcryptでパスワードを検証
+            app.logger.warning("Missing password hash for user_id=%s", user.get("id"))
+            return api_error("ユーザー名またはパスワードが正しくありません", 401)
+
         try:
-            if isinstance(password_hash, bytes):
-                password_hash = password_hash.decode('utf-8')
-            
-            if not bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8')):
-                db.close()
-                return jsonify({
-                    "success": False,
-                    "error": "ユーザー名またはパスワードが正しくありません"
-                }), 401
-        except Exception as e:
-            # パスワードがハッシュ化されていない場合（開発用）
-            # 本番環境では削除してください
-            if password_hash != password:
-                db.close()
-                return jsonify({
-                    "success": False,
-                    "error": "ユーザー名またはパスワードが正しくありません"
-                }), 401
-        
-        # 最終ログイン日時を更新（カラムが存在する場合）
+            password_hash_bytes = (
+                password_hash.encode('utf-8')
+                if isinstance(password_hash, str)
+                else password_hash
+            )
+            password_valid = bcrypt.checkpw(password.encode('utf-8'), password_hash_bytes)
+        except (TypeError, ValueError):
+            app.logger.warning("Invalid password hash for user_id=%s", user.get("id"))
+            password_valid = False
+
+        if not password_valid:
+            return api_error("ユーザー名またはパスワードが正しくありません", 401)
+
         try:
             db.execute_non_query(
                 "UPDATE users SET last_login_at = %s WHERE id = %s",
-                (datetime.now(), user['id'])
+                (datetime.now(), user['id']),
             )
-        except:
-            pass  # last_login_atカラムが存在しない場合はスキップ
-        
-        db.close()
-        
-        # パスワード情報を除外して返す
-        user_response = {k: v for k, v in user.items() if k not in ['password', 'password_hash']}
-        
-        return jsonify({
-            "success": True,
-            "data": user_response
-        })
-        
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        except Exception:
+            app.logger.warning("Failed to update last_login_at for user_id=%s", user.get("id"))
+
+        session.clear()
+        session["user_id"] = int(user["id"])
+        session.permanent = True
+
+        user_response = {
+            key: value
+            for key, value in user.items()
+            if key not in ["password", "password_hash"]
+        }
+        return jsonify({"success": True, "data": user_response})
+    except Exception:
+        app.logger.exception("Login failed")
+        return api_error("ログイン処理中にエラーが発生しました", 500)
+    finally:
+        if db:
+            db.close()
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """サーバー側セッションを破棄する。"""
+    session.clear()
+    return jsonify({"success": True, "message": "ログアウトしました"})
 
 
 @app.route('/api/auth/signup', methods=['POST'])
+@limiter.limit("3 per hour")
 def signup():
+
     """新規ユーザー登録"""
     try:
-        data = request.get_json()
-        username = data.get('username', '').strip()
-        email = data.get('email', '').strip()
-        password = data.get('password', '')
-        
+        data = request.get_json(silent=True) or {}
+        username = str(data.get('username', '')).strip()
+        email = str(data.get('email', '')).strip()
+        password = str(data.get('password', ''))
+
         if not username or not email or not password:
             return jsonify({
                 "success": False,
@@ -1179,13 +1205,11 @@ def signup():
                 "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)",
                 (username, email, password_hash)
             )
-        except Exception as e:
+        except Exception:
             db.close()
-            return jsonify({
-                "success": False,
-                "error": f"ユーザー登録に失敗しました: {str(e)}"
-            }), 500
-        
+            app.logger.exception("Signup insert failed")
+            return api_error("ユーザー登録に失敗しました", 500)
+
         db.close()
         
         return jsonify({
@@ -1193,75 +1217,25 @@ def signup():
             "message": "アカウントが作成されました"
         })
         
-    except Exception as e:
-        import traceback
-        error_detail = traceback.format_exc()
-        print(f"Signup error: {error_detail}")
-        return jsonify({
-            "success": False,
-            "error": f"ユーザー登録に失敗しました: {str(e)}"
-        }), 500
+    except Exception:
+        app.logger.exception("Signup failed")
+        return api_error("ユーザー登録に失敗しました", 500)
 
 
 @app.route('/api/auth/reset-password', methods=['POST'])
 def reset_password():
-    """パスワードリセット（メール送信は未実装）"""
-    try:
-        data = request.get_json()
-        email = data.get('email', '').strip()
-        
-        if not email:
-            return jsonify({
-                "success": False,
-                "error": "メールアドレスを入力してください"
-            }), 400
-        
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        
-        # ユーザーを検索
-        user = db.execute_query(
-            "SELECT id, email FROM users WHERE email = %s LIMIT 1",
-            (email,)
-        )
-        
-        if not user:
-            # セキュリティ上の理由で、ユーザーが存在しない場合も成功を返す
-            db.close()
-            return jsonify({
-                "success": True,
-                "message": "パスワードリセット用のリンクをメールアドレスに送信しました"
-            })
-        
-        # ここで実際にはメール送信処理を行う
-        # 今回は簡易的に成功を返す
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "message": "パスワードリセット用のリンクをメールアドレスに送信しました"
-        })
-        
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    """メール配送を実装するまで、誤解を招く成功応答を返さない。"""
+    return api_error("パスワードリセット機能は現在ご利用いただけません", 501)
 
 
 @app.route('/api/auth/profile', methods=['GET'])
+@require_authenticated_user
 def get_profile():
-    """プロフィール情報を取得"""
+    """認証済み本人のプロフィール情報を取得する。"""
     try:
-        user_id = request.args.get('user_id', type=int)
-        
-        if not user_id:
-            return jsonify({
-                "success": False,
-                "error": "ユーザーIDが必要です"
-            }), 400
-        
+        user_id = session["user_id"]
         db = DatabaseConnection(**MYSQL_CONFIG)
-        
+
         # ユーザー情報を取得
         user = db.execute_query(
             "SELECT id, username, email FROM users WHERE id = %s LIMIT 1",
@@ -1363,32 +1337,25 @@ def get_profile():
             "data": profile_data
         })
         
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    except Exception:
+        app.logger.exception("Profile retrieval failed")
+        return api_error("プロフィールの取得に失敗しました", 500)
 
 
 @app.route('/api/auth/profile', methods=['PUT'])
+@require_authenticated_user
 def update_profile():
-    """プロフィール情報を更新"""
+    """認証済み本人のプロフィール情報を更新する。"""
     try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        username = data.get('username', '').strip()
+        data = request.get_json(silent=True) or {}
+        user_id = session["user_id"]
+        username = str(data.get('username', '')).strip()
         disability_type = data.get('disability_type')
         favorite_stations = data.get('favorite_stations')
         preferred_features = data.get('preferred_features')
-        
-        if not user_id:
-            return jsonify({
-                "success": False,
-                "error": "ユーザーIDが必要です"
-            }), 400
-        
+
         db = DatabaseConnection(**MYSQL_CONFIG)
-        
+
         # ユーザーの存在確認
         user = db.execute_query(
             "SELECT id FROM users WHERE id = %s LIMIT 1",
@@ -1422,13 +1389,11 @@ def update_profile():
                     "UPDATE users SET username = %s WHERE id = %s",
                     (username, user_id)
                 )
-            except Exception as e:
+            except Exception:
                 db.close()
-                return jsonify({
-                    "success": False,
-                    "error": f"ユーザー名の更新に失敗しました: {str(e)}"
-                }), 500
-        
+                app.logger.exception("Username update failed for user_id=%s", user_id)
+                return api_error("ユーザー名の更新に失敗しました", 500)
+
         # users_preferencesテーブルの更新
         # 既存のレコードがあるか確認
         existing_pref = []
@@ -1538,18 +1503,14 @@ def update_profile():
                 "success": True,
                 "message": "プロフィールを更新しました"
             })
-        except Exception as e:
+        except Exception:
             db.close()
-            return jsonify({
-                "success": False,
-                "error": f"プロフィールの更新に失敗しました: {str(e)}"
-            }), 500
+            app.logger.exception("Profile preference update failed for user_id=%s", user_id)
+            return api_error("プロフィールの更新に失敗しました", 500)
         
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+    except Exception:
+        app.logger.exception("Profile update failed")
+        return api_error("プロフィールの更新に失敗しました", 500)
 
 
 if __name__ == '__main__':

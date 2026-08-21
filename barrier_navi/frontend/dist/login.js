@@ -4,7 +4,7 @@
  */
 class LoginPage {
     constructor() {
-        this.apiBaseUrl = 'http://localhost:5000/api';
+        this.apiBaseUrl = '/api';
         this.init();
     }
     init() {
@@ -19,7 +19,7 @@ class LoginPage {
             const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
             const isGuest = localStorage.getItem('isGuest') === 'true';
             if (isLoggedIn || isGuest) {
-                window.location.href = 'view/home.html';
+                window.location.href = '/home';
             }
         }
     }
@@ -37,7 +37,8 @@ class LoginPage {
         const forgotPasswordLink = document.getElementById('forgot-password-link');
         forgotPasswordLink?.addEventListener('click', (e) => {
             e.preventDefault();
-            this.showResetPasswordModal();
+            const errorMessage = document.getElementById('error-message');
+            this.showError(errorMessage, 'パスワードリセット機能は現在ご利用いただけません。');
         });
         // 新規作成モーダル
         const signupModal = document.getElementById('signup-modal');
@@ -89,7 +90,7 @@ class LoginPage {
                 if (response.user?.email) {
                     localStorage.setItem('userEmail', response.user.email);
                 }
-                window.location.href = 'view/home.html';
+                window.location.href = '/home';
             }
             else {
                 // ログイン失敗
@@ -130,7 +131,7 @@ class LoginPage {
     handleGuestLogin() {
         localStorage.setItem('isGuest', 'true');
         localStorage.setItem('username', 'ゲスト');
-        window.location.href = 'view/home.html';
+        window.location.href = '/home';
     }
     showSignupModal() {
         const modal = document.getElementById('signup-modal');

@@ -67,9 +67,18 @@ MYSQL_PORT=3306
 MYSQL_USER=root
 MYSQL_PASSWORD=your_password_here
 MYSQL_DATABASE=station
+
+# 48文字以上のランダム値を設定（Gitへコミットしない）
+FLASK_SECRET_KEY=replace_with_a_long_random_secret
+
+# ローカルHTTPではfalse、本番HTTPSではtrue
+SESSION_COOKIE_SECURE=false
+
+# 同一オリジン運用では空のまま。別オリジンを許可する場合のみ明示する
+CORS_ALLOWED_ORIGINS=
 ```
 
-`your_password_here`の部分を実際のMySQLパスワードに置き換えてください。
+`your_password_here`の部分を実際のMySQLパスワードに置き換えてください。`FLASK_SECRET_KEY`には、十分に長いランダムな秘密値を設定してください。テンプレートとして`barrier_navi/.env.example`を利用できます。
 
 **重要**: `.env`ファイルには機密情報が含まれるため、Gitにコミットしないでください。`.gitignore`に追加されています。
 

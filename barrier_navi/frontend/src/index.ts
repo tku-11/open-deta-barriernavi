@@ -360,7 +360,7 @@ class StationApp {
 
     try {
       // プロフィールデータを取得
-      const response = await fetch(`${this.apiBaseUrl}/auth/profile?user_id=${userId}`, {
+      const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
         headers: {
           'Content-Type': 'application/json',
         },
@@ -427,7 +427,7 @@ class StationApp {
 
     try {
       // プロフィールデータを取得
-      const response = await fetch(`${this.apiBaseUrl}/auth/profile?user_id=${userId}`, {
+      const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
         headers: {
           'Content-Type': 'application/json',
         },

@@ -57,6 +57,7 @@ declare class StationApp {
     private sortOrder;
     private currentMode;
     private currentMetrics;
+    private favoriteStationIds;
     constructor();
     private init;
     private renderFilterControls;
@@ -68,9 +69,21 @@ declare class StationApp {
      * プロフィールの優先機能を読み込んで自動的に適用
      */
     private applyPreferredFeatures;
+    /**
+     * お気に入り駅IDを取得
+     */
+    private loadFavoriteStations;
     private loadPrefectures;
     private fetchApi;
     private loadStations;
+    /**
+     * お気に入り駅を先頭に並べ替える（ソート順も適用）
+     */
+    private sortStationsWithFavorites;
+    /**
+     * ソート順を適用する
+     */
+    private applySortOrder;
     private updateActiveFilters;
     private renderStationCards;
     private updatePagination;
