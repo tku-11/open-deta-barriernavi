@@ -4,72 +4,63 @@ Flask APIサーバー - stationsデータベースからデータを提供
 
 import json
 import os
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
+from typing import Any, Dict, List, Optional
 
-from flask import Flask, jsonify, request, send_from_directory, send_file, session
-
+import bcrypt
+from flask import Flask, jsonify, request, session
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from dotenv import load_dotenv
 
+from config import (
+    BASE_DIR as CONFIG_BASE_DIR,
+    DIST_DIR as CONFIG_DIST_DIR,
+    FRONTEND_DIR as CONFIG_FRONTEND_DIR,
+    VIEW_DIR as CONFIG_VIEW_DIR,
+    cors_allowed_origins,
+    database_config,
+    rate_limit_storage_uri,
+    session_config,
+)
 from database_connection import DatabaseConnection
-import bcrypt
-import os
-
-# プロジェクトルートのパスを設定
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# .envファイルから環境変数を読み込む
-# プロジェクトルートの.envを読み込む
-env_path = os.path.join(BASE_DIR, '.env')
-load_dotenv(dotenv_path=env_path)
-
-# フロントエンドファイルのパスを設定
-FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
-VIEW_DIR = os.path.join(FRONTEND_DIR, 'view')
-DIST_DIR = os.path.join(FRONTEND_DIR, 'dist')
-
-app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='')
-
-# セッション署名鍵は環境変数で必須とする。起動ごとの自動生成は、
-# 再起動時に全利用者を強制ログアウトさせ、設定漏れも検知できないため採用しない。
-session_secret = os.getenv("FLASK_SECRET_KEY")
-if not session_secret:
-    raise RuntimeError("FLASK_SECRET_KEY を .env または環境変数に設定してください。")
-
-app.config.update(
-    SECRET_KEY=session_secret,
-    SESSION_COOKIE_NAME="barriernavi_session",
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true",
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+from repositories.station_repository import StationRepository
+from repositories.user_repository import UserRepository
+from routes.auth import create_auth_blueprint
+from routes.scored_stations import create_scored_stations_blueprint
+from routes.pages import create_pages_blueprint
+from services.scoring import (
+    BODY_METRIC_DEFINITIONS,
+    HEARING_METRIC_DEFINITIONS,
+    VISION_METRIC_DEFINITIONS,
+    build_station_response,
+    compute_score,
+    definitions_for_mode,
+    evaluate_metric,
 )
 
-# 同一オリジン利用では CORS は不要。別オリジンのフロントエンドを使う場合のみ、
-# CORS_ALLOWED_ORIGINS にカンマ区切りで明示したオリジンを許可する。
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
-    if origin.strip()
-]
-if allowed_origins:
-    CORS(
-        app,
-        resources={r"/api/*": {"origins": allowed_origins}},
-        supports_credentials=True,
-    )
+BASE_DIR = str(CONFIG_BASE_DIR)
+FRONTEND_DIR = str(CONFIG_FRONTEND_DIR)
+VIEW_DIR = str(CONFIG_VIEW_DIR)
+DIST_DIR = str(CONFIG_DIST_DIR)
+MYSQL_CONFIG = database_config()
 
-# ローカル開発では memory://、複数プロセス/本番では Redis 等の共有ストレージを指定する。
+app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
+app.config.update(session_config())
+
+allowed_origins = cors_allowed_origins()
+if allowed_origins:
+    CORS(app, resources={r"/api/*": {"origins": allowed_origins}}, supports_credentials=True)
+
 limiter = Limiter(
     get_remote_address,
     app=app,
-    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
+    storage_uri=rate_limit_storage_uri(),
 )
-
+app.register_blueprint(
+    create_pages_blueprint(CONFIG_FRONTEND_DIR, CONFIG_VIEW_DIR, CONFIG_DIST_DIR)
+)
 
 def api_error(message: str, status_code: int):
 
@@ -95,105 +86,39 @@ def require_authenticated_user(view):
     return wrapped
 
 
-# MySQL接続情報（環境変数から取得）
+def user_repository_factory() -> UserRepository:
+    """テスト時に差し替え可能なユーザーリポジトリを生成する。"""
+    return UserRepository(DatabaseConnection, MYSQL_CONFIG)
 
-# 注意: パスワードは必ず.envファイルで設定してください
-MYSQL_CONFIG = {
-    "host": os.getenv("MYSQL_HOST", "localhost"),
-    "port": int(os.getenv("MYSQL_PORT", "3306")),
-    "user": os.getenv("MYSQL_USER", "root"),
-    "password": os.getenv("MYSQL_PASSWORD", ""),  # デフォルト値は空文字列（.envファイル必須）
-    "database": os.getenv("MYSQL_DATABASE", "station")
-}
 
-# デバッグ: 環境変数の読み込み状況を確認
-print("=== 環境変数の読み込み状況 ===")
-print(f".envファイルのパス: {env_path}")
-print(f".envファイルの存在: {os.path.exists(env_path)}")
-print(f"MYSQL_HOST: {MYSQL_CONFIG['host']}")
-print(f"MYSQL_PORT: {MYSQL_CONFIG['port']}")
-print(f"MYSQL_USER: {MYSQL_CONFIG['user']}")
-print(f"MYSQL_PASSWORD: {'***' if MYSQL_CONFIG['password'] else '(未設定)'}")
-print(f"MYSQL_DATABASE: {MYSQL_CONFIG['database']}")
-print("=" * 40)
+app.register_blueprint(
+    create_auth_blueprint(user_repository_factory, limiter, api_error, require_authenticated_user)
+)
 
-# .envファイルが設定されているか確認（開発時の警告）
-if not MYSQL_CONFIG["password"]:
-    print("\n⚠️  警告: MYSQL_PASSWORDが設定されていません。")
-    print(f"   .envファイルを確認してください: {env_path}")
-    print("   .envファイルの例:")
-    print("   MYSQL_HOST=localhost")
-    print("   MYSQL_PORT=3306")
-    print("   MYSQL_USER=root")
-    print("   MYSQL_PASSWORD=your_password_here")
-    print("   MYSQL_DATABASE=station\n")
 
-BODY_METRIC_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    # フラグ型（〇×で表せる項目）：設置されていれば1点
-    "step_response_status": {"label": "段差への対応", "type": "flag", "required": 1},
-    "has_guidance_system": {"label": "案内設備の設置の有無", "type": "flag", "required": 1},
-    "has_accessible_restroom": {"label": "障害者対応型便所の設置の有無", "type": "flag", "required": 1},
-    "has_accessible_gate": {"label": "障害者対応型改札口の設置の有無", "type": "flag", "required": 1},
-    "has_fall_prevention": {"label": "転落防止のための設備の設置の有無", "type": "flag", "required": 1},
-    # 割合型（分子/分母の形式で表示、基準値以上の割合であれば1点）
-    "platform_ratio": {"label": "段差が解消されているプラットホームの割合", "type": "ratio", "numerator": "num_step_free_platforms", "denominator": "num_platforms", "required": 0.8},
-    "elevator_ratio": {"label": "移動等円滑化基準に適合しているエレベーターの割合", "type": "ratio", "numerator": "num_compliant_elevators", "denominator": "num_elevators", "required": 0.8},
-    "escalator_ratio": {"label": "移動等円滑化基準に適合しているエスカレーターの割合", "type": "ratio", "numerator": "num_compliant_escalators", "denominator": "num_escalators", "required": 0.8},
-    # 数値型（基準値以上であれば1点、未満なら0点）
-    "num_other_lifts": {"label": "その他の昇降機の設置基数", "type": "number", "required": 2},
-    "num_slopes": {"label": "傾斜路の設置箇所数", "type": "number", "required": 2},
-    "num_compliant_slopes": {"label": "移動等円滑化基準に適合している傾斜路の設置箇所数", "type": "number", "required": 2},
-    "num_wheelchair_accessible_platforms": {"label": "車いす使用者の円滑な乗降が可能なプラットホームの数", "type": "number", "required": 6},
-}
 
-HEARING_METRIC_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    # フラグ型（〇×で表せる項目）：設置されていれば1点
-    "has_guidance_system": {"label": "案内設備の設置の有無", "type": "flag", "required": 1},
-    "has_accessible_restroom": {"label": "障害者対応型便所の設置の有無", "type": "flag", "required": 1},
-    "has_accessible_gate": {"label": "障害者対応型改札口の設置の有無", "type": "flag", "required": 1},
-    "has_fall_prevention": {"label": "転落防止のための設備の設置の有無", "type": "flag", "required": 1},
-}
 
-VISION_METRIC_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    # フラグ型（〇×で表せる項目）：設置されていれば1点
-    "step_response_status": {"label": "段差への対応", "type": "flag", "required": 1},
-    "has_tactile_paving": {"label": "視覚障害者誘導用ブロックの設置の有無", "type": "flag", "required": 1},
-    "has_guidance_system": {"label": "案内設備の設置の有無", "type": "flag", "required": 1},
-    "has_accessible_restroom": {"label": "障害者対応型便所の設置の有無", "type": "flag", "required": 1},
-    "has_accessible_gate": {"label": "障害者対応型改札口の設置の有無", "type": "flag", "required": 1},
-    "has_fall_prevention": {"label": "転落防止のための設備の設置の有無", "type": "flag", "required": 1},
-    # 割合型（分子/分母の形式で表示、基準値以上の割合であれば1点）
-    "platform_ratio": {"label": "段差が解消されているプラットホームの割合", "type": "ratio", "numerator": "num_step_free_platforms", "denominator": "num_platforms", "required": 0.8},
-    # 数値型（基準値以上であれば1点、未満なら0点）
-    "num_compliant_elevators": {"label": "移動等円滑化基準に適合しているエレベーターの設置基数", "type": "number", "required": 4},
-    "num_compliant_escalators": {"label": "移動等円滑化基準に適合しているエスカレーターの設置基数", "type": "number", "required": 4},
-    "num_compliant_slopes": {"label": "移動等円滑化基準に適合している傾斜路の設置箇所数", "type": "number", "required": 2},
-}
 BODY_BASE_COLUMNS = [
     "id",
     "station_name",
     "railway_operator",
     "line_name",
     "prefecture",
-    "city"
+    "city",
 ]
-# 割合型のメトリクスは計算値なので、元のカラム名を含める必要がある
 BODY_QUERY_COLUMNS = BODY_BASE_COLUMNS + [
-    # フラグ型
     "step_response_status",
     "has_guidance_system",
     "has_accessible_restroom",
     "has_accessible_gate",
     "has_fall_prevention",
-    "has_tactile_paving",  # 視覚障害用
-    # 割合計算に必要な元のカラム
+    "has_tactile_paving",
     "num_platforms",
     "num_step_free_platforms",
     "num_elevators",
     "num_compliant_elevators",
     "num_escalators",
     "num_compliant_escalators",
-    # 数値型
     "num_other_lifts",
     "num_slopes",
     "num_compliant_slopes",
@@ -201,377 +126,65 @@ BODY_QUERY_COLUMNS = BODY_BASE_COLUMNS + [
 ]
 
 
-def evaluate_metric(value: Any, definition: Dict[str, Any], row: Dict[str, Any] = None) -> Dict[str, Any]:
-    metric_type = definition.get("type", "flag")
-    required = definition.get("required", 1) or 1
-    result: Dict[str, Any] = {"raw_value": value, "required": required}
-
-    if metric_type == "flag":
-        met = str(value).strip() == "1"
-        ratio = 1.0 if met else 0.0
-        result.update({"processed_value": "○" if met else "×", "ratio": ratio, "met": met})
-    elif metric_type == "ratio":
-        # 割合型: 分子と分母のフィールドから計算
-        numerator_key = definition.get("numerator")
-        denominator_key = definition.get("denominator")
-        if row and numerator_key and denominator_key:
-            try:
-                numerator = float(row.get(numerator_key, 0) or 0)
-                denominator = float(row.get(denominator_key, 0) or 0)
-            except (TypeError, ValueError):
-                numerator = 0.0
-                denominator = 0.0
-            
-            if denominator > 0:
-                calculated_ratio = numerator / denominator
-                percentage = calculated_ratio * 100
-                met = calculated_ratio >= required
-                result.update({
-                    "processed_value": f"{int(numerator)}/{int(denominator)} ({percentage:.1f}%)",
-                    "numerator": int(numerator),
-                    "denominator": int(denominator),
-                    "percentage": round(percentage, 1),
-                    "ratio": calculated_ratio,
-                    "met": met
-                })
-            else:
-                result.update({
-                    "processed_value": "0/0 (0.0%)",
-                    "numerator": 0,
-                    "denominator": 0,
-                    "percentage": 0.0,
-                    "ratio": 0.0,
-                    "met": False
-                })
-        else:
-            result.update({
-                "processed_value": "-",
-                "numerator": 0,
-                "denominator": 0,
-                "percentage": 0.0,
-                "ratio": 0.0,
-                "met": False
-            })
-    else:
-        try:
-            numeric_value = float(value) if value is not None else 0.0
-        except (TypeError, ValueError):
-            numeric_value = 0.0
-        ratio = min(numeric_value / required, 1.0) if required else 0.0
-        met = numeric_value >= required
-        result.update({"processed_value": numeric_value, "ratio": ratio, "met": met})
-
-    return result
+def station_repository_factory() -> StationRepository:
+    """テスト時に差し替え可能な駅リポジトリを生成する。"""
+    return StationRepository(DatabaseConnection, MYSQL_CONFIG)
 
 
-def compute_score(row: Dict[str, Any], definitions: Dict[str, Any], include_details: bool = False) -> Dict[str, Any]:
-    """指定された基準(definitions)に基づいてスコアを計算"""
-    met_items = 0
-    details: List[Dict[str, Any]] = []
+app.register_blueprint(
+    create_scored_stations_blueprint(station_repository_factory, BODY_QUERY_COLUMNS, api_error)
+)
 
-    for field, definition in definitions.items():
-        metric_result = evaluate_metric(row.get(field), definition, row=row)
-        if metric_result["met"]:
-            met_items += 1
-
-        if include_details:
-            detail_item = {
-                "key": field,
-                "label": definition["label"],
-                "value": metric_result["processed_value"],
-                "raw_value": metric_result["raw_value"],
-                "ratio": round(metric_result["ratio"], 2),
-                "met": metric_result["met"],
-                "type": definition["type"],
-                "required": definition["required"]
-            }
-            # 割合型の場合は追加情報を含める
-            if definition.get("type") == "ratio":
-                detail_item["numerator"] = metric_result.get("numerator", 0)
-                detail_item["denominator"] = metric_result.get("denominator", 0)
-                detail_item["percentage"] = metric_result.get("percentage", 0.0)
-            details.append(detail_item)
-
-    total_items = len(definitions)
-    percentage = (met_items / total_items) * 100 if total_items > 0 else 0
-    
-    return {
-        "met_items": met_items,
-        "total_items": total_items,
-        "percentage": round(percentage, 1),
-        "details": details if include_details else None
-    }
-
-
-def build_station_response(row: Dict[str, Any], mode: str = 'body', include_details: bool = False) -> Dict[str, Any]:
-    """レスポンス用データの構築（モードで切り替え）"""
-    # モードに応じて評価基準を切り替える
-    definitions = HEARING_METRIC_DEFINITIONS if mode == 'hearing' else VISION_METRIC_DEFINITIONS if mode == 'vision' else BODY_METRIC_DEFINITIONS
-    
-    score = compute_score(row, definitions, include_details=include_details)
-    
-    response = {
-        "station_id": row.get("id"),
-        "station_name": row.get("station_name"),
-        "prefecture": row.get("prefecture"),
-        "city": row.get("city"),
-        "operator": row.get("railway_operator"),
-        "line_name": row.get("line_name"),
-        "score": {
-            "met_items": score["met_items"],
-            "total_items": score["total_items"],
-            "percentage": score["percentage"],
-            "label": f"{score['met_items']}/{score['total_items']}点"
-        }
-    }
-    if include_details:
-        response["metrics"] = score["details"]
-    return response
 
 # ---------------------------------------------------------
 # ★これを新しく追加してください（共通の検索・取得ロジック）
 # ---------------------------------------------------------
-def get_stations_with_score(mode: str):
-    try:
-        # モードに応じた定義を選択
-        definitions = HEARING_METRIC_DEFINITIONS if mode == 'hearing' else VISION_METRIC_DEFINITIONS if mode == 'vision' else BODY_METRIC_DEFINITIONS
-        
-        keyword = request.args.get('keyword', default='', type=str).strip()
-        prefecture = request.args.get('prefecture', default=None, type=str)
-        line_name = request.args.get('line_name', default=None, type=str)
-        limit = request.args.get('limit', default=20, type=int)
-        offset = request.args.get('offset', default=0, type=int)
-        limit = min(max(limit, 1), 100)
-        offset = max(offset, 0)
-
-        filters_param = request.args.get('filters', default=None, type=str)
-        sort_order = request.args.get('sort', default='none', type=str)
-
-        filter_list = []
-        if filters_param:
-            try:
-                filter_list = json.loads(filters_param)
-                if not isinstance(filter_list, list):
-                    filter_list = []
-            except json.JSONDecodeError:
-                filter_list = []
-
-        where_clause = "FROM stations WHERE 1=1"
-        params: List[Any] = []
-
-        if keyword:
-            where_clause += " AND station_name LIKE %s"
-            params.append(f"%{keyword}%")
-        if prefecture:
-            where_clause += " AND prefecture = %s"
-            params.append(prefecture)
-        if line_name:
-            search_line = line_name.replace('線', '')
-            if search_line.endswith('新幹'):
-                 pass 
-            where_clause += " AND line_name LIKE %s"
-            params.append(f"%{search_line}%")
-
-        # 定義に基づいてフィルタリング
-        for filter_key in filter_list:
-            if isinstance(filter_key, str) and filter_key in definitions:
-
-                metric_def = definitions[filter_key]
-                if metric_def["type"] == "flag":
-                    where_clause += f" AND {filter_key} = %s"
-                    params.append(1)
-                elif metric_def["type"] == "ratio":
-                    # 割合型: 分子と分母の両方が存在し、割合が基準値以上であることを確認
-                    numerator_key = metric_def.get("numerator")
-                    denominator_key = metric_def.get("denominator")
-                    required_ratio = metric_def.get("required", 0.8)
-                    if numerator_key and denominator_key:
-                        # 分母が0より大きく、分子/分母 >= 基準値 の条件
-                        where_clause += f" AND {denominator_key} > 0 AND ({numerator_key} / NULLIF({denominator_key}, 0)) >= %s"
-                        params.append(required_ratio)
-                elif metric_def["type"] == "number":
-                    where_clause += f" AND {filter_key} >= %s"
-                    params.append(metric_def.get("required", 0))
-
-        db = DatabaseConnection(**MYSQL_CONFIG)
-
-        # ソート処理変更前（ページごとにDBから取得）
-        # count_query = f"SELECT COUNT(*) as total {where_clause}"
-        # count_result = db.execute_query(count_query, tuple(params))
-        # total_count = count_result[0]['total'] if count_result else 0
-
-        # columns = ", ".join(BODY_QUERY_COLUMNS)
-        # query = f"SELECT {columns} {where_clause} ORDER BY station_name LIMIT %s OFFSET %s"
-        # data_params = params + [limit, offset]
-        # rows = db.execute_query(query, tuple(data_params))
-        # db.close()
-        # ここで mode を渡してレスポンスを作る
-        # data = [build_station_response(row, mode=mode, include_details=False) for row in rows]
-
-
-        # ソート処理変更後（全件取得してアプリ側でソート・ページング）
-        columns = ", ".join(BODY_QUERY_COLUMNS)
-        query = f"SELECT {columns} {where_clause} ORDER BY station_name"
-
-        rows = db.execute_query(query, tuple(params))
-        db.close()
-
-        all_data = [build_station_response(row, mode=mode, include_details=False) for row in rows]
-        total_count = len(all_data)
-
-        if sort_order == 'score-asc':
-            all_data.sort(key=lambda x: x['score']['percentage'])
-        elif sort_order == 'score-desc':
-            all_data.sort(key=lambda x: x['score']['percentage'], reverse=True)
-
-        start = offset
-        end = offset + limit
-        paged_data = all_data[start:end]
-
-        return jsonify({
-            "success": True,
-            "data": paged_data,
-            "count": len(paged_data),
-            "total_count": total_count
-        })
-    except Exception as e:
-        return api_error("サーバー内部でエラーが発生しました", 500)
-
-
-def get_station_detail_with_score(station_id: int, mode: str):
-    try:
-        columns = ", ".join(BODY_QUERY_COLUMNS)
-        query = f"SELECT {columns} FROM stations WHERE id = %s"
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        rows = db.execute_query(query, (station_id,))
-        db.close()
-
-        if not rows:
-            return jsonify({"success": False, "error": "Station not found"}), 404
-
-        detail = build_station_response(rows[0], mode=mode, include_details=True)
-        return jsonify({"success": True, "data": detail})
-    except Exception as e:
-        return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations', methods=['GET'])
 def get_stations():
-    """全駅データを取得"""
     try:
         limit = request.args.get('limit', default=100, type=int)
         offset = request.args.get('offset', default=0, type=int)
         prefecture = request.args.get('prefecture', default=None, type=str)
-        
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        
-        query = "SELECT * FROM stations WHERE 1=1"
-        params = []
-        
-        if prefecture:
-            query += " AND prefecture = %s"
-            params.append(prefecture)
-        
-        query += " LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
-        
-        stations = db.execute_query(query, tuple(params) if params else None)
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "data": stations,
-            "count": len(stations)
-        })
-    except Exception as e:
+        stations = station_repository_factory().list_raw_stations(limit, offset, prefecture)
+        return jsonify({"success": True, "data": stations, "count": len(stations)})
+    except Exception:
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/<int:station_id>', methods=['GET'])
 def get_station(station_id):
-    """特定の駅データを取得"""
     try:
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        stations = db.execute_query(
-            "SELECT * FROM stations WHERE id = %s",
-            (station_id,)
-        )
-        db.close()
-        
-        if stations:
-            return jsonify({
-                "success": True,
-                "data": stations[0]
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "error": "Station not found"
-            }), 404
-    except Exception as e:
+        station = station_repository_factory().get_raw_station(station_id)
+        if station is None:
+            return jsonify({"success": False, "error": "Station not found"}), 404
+        return jsonify({"success": True, "data": station})
+    except Exception:
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/count', methods=['GET'])
 def get_stations_count():
-    """駅の総数を取得"""
     try:
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        result = db.execute_query("SELECT COUNT(*) as total FROM stations")
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "count": result[0]['total']
-        })
-    except Exception as e:
+        return jsonify({"success": True, "count": station_repository_factory().count_stations()})
+    except Exception:
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/prefectures', methods=['GET'])
 def get_prefectures():
-    """都道府県一覧を取得"""
     try:
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        prefectures = db.execute_query("""
-            SELECT prefecture, COUNT(*) as count 
-            FROM stations 
-            WHERE prefecture IS NOT NULL 
-            GROUP BY prefecture 
-            ORDER BY count DESC
-        """)
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "data": prefectures
-        })
-    except Exception as e:
+        return jsonify({"success": True, "data": station_repository_factory().list_prefectures()})
+    except Exception:
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
 @app.route('/api/stations/statistics', methods=['GET'])
 def get_statistics():
-    """バリアフリー設備の統計を取得"""
     try:
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        stats = db.execute_query("""
-            SELECT 
-                COUNT(*) as total_stations,
-                SUM(CASE WHEN has_tactile_paving = 1 THEN 1 ELSE 0 END) as with_tactile_paving,
-                SUM(CASE WHEN has_guidance_system = 1 THEN 1 ELSE 0 END) as with_guidance_system,
-                SUM(CASE WHEN has_accessible_restroom = 1 THEN 1 ELSE 0 END) as with_accessible_restroom,
-                SUM(CASE WHEN has_accessible_gate = 1 THEN 1 ELSE 0 END) as with_accessible_gate,
-                SUM(CASE WHEN num_elevators > 0 THEN 1 ELSE 0 END) as with_elevators
-            FROM stations
-        """)
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "data": stats[0] if stats else {}
-        })
-    except Exception as e:
+        return jsonify({"success": True, "data": station_repository_factory().get_statistics()})
+    except Exception:
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
@@ -967,30 +580,6 @@ def search_stations():
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
-@app.route('/api/body/stations', methods=['GET'])
-def get_body_stations():
-    return get_stations_with_score(mode='body')
-    
-@app.route('/api/body/stations/<int:station_id>', methods=['GET'])
-def get_body_detail(station_id: int):
-    return get_station_detail_with_score(station_id, mode='body')
-
-@app.route('/api/hearing/stations', methods=['GET'])
-def get_hearing_stations():
-    return get_stations_with_score(mode='hearing')
-
-@app.route('/api/hearing/stations/<int:station_id>', methods=['GET'])
-def get_hearing_detail(station_id):
-    return get_station_detail_with_score(station_id, mode='hearing')
-
-@app.route('/api/vision/stations', methods=['GET'])
-def get_vision_stations():
-    return get_stations_with_score(mode='vision')
-
-@app.route('/api/vision/stations/<int:station_id>', methods=['GET'])
-def get_vision_detail(station_id):
-    return get_station_detail_with_score(station_id, mode='vision')
-
 @app.route('/api/lines', methods=['GET'])
 def get_lines():
     """路線名一覧を取得（プルダウン用）"""
@@ -1021,450 +610,6 @@ def get_lines():
         return api_error("サーバー内部でエラーが発生しました", 500)
 
 
-# ==================== 静的ファイル提供 ====================
-
-@app.route('/')
-def index():
-    """ルートパスでログイン画面を表示"""
-    return send_file(os.path.join(VIEW_DIR, 'login.html'))
-
-@app.route('/login')
-def login_page():
-    """ログイン画面"""
-    return send_file(os.path.join(VIEW_DIR, 'login.html'))
-
-@app.route('/home')
-def home_page():
-    """ホーム画面"""
-    return send_file(os.path.join(VIEW_DIR, 'home.html'))
-
-@app.route('/index')
-def index_page():
-    """一覧画面（身体障害向け）"""
-    return send_file(os.path.join(VIEW_DIR, 'index.html'))
-
-@app.route('/hearing')
-def hearing_page():
-    """聴覚障害向け一覧画面"""
-    return send_file(os.path.join(VIEW_DIR, 'hearing.html'))
-
-@app.route('/vision')
-def vision_page():
-    """視覚障害向け一覧画面"""
-    return send_file(os.path.join(VIEW_DIR, 'vision.html'))
-
-@app.route('/profile')
-def profile_page():
-    """プロフィール画面"""
-    return send_file(os.path.join(VIEW_DIR, 'profile.html'))
-
-@app.route('/detail')
-def detail_page():
-    """詳細画面"""
-    return send_file(os.path.join(VIEW_DIR, 'detail.html'))
-
-@app.route('/styles.css')
-def styles_css():
-    """CSSファイル"""
-    return send_file(os.path.join(FRONTEND_DIR, 'styles.css'))
-
-@app.route('/dist/<path:filename>')
-def dist_files(filename):
-    """distディレクトリ内のファイル（JS、CSS等）"""
-    return send_from_directory(DIST_DIR, filename)
-
-# ==================== 認証関連API ====================
-
-@app.route('/api/auth/login', methods=['POST'])
-@limiter.limit("5 per minute")
-def login():
-
-    """ログイン処理と署名付きセッションの発行。"""
-    db = None
-    try:
-        data = request.get_json(silent=True) or {}
-        username = str(data.get('username', '')).strip()
-        password = str(data.get('password', ''))
-
-        if not username or not password:
-            return api_error("ユーザー名とパスワードを入力してください", 400)
-
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        users = db.execute_query(
-            "SELECT * FROM users WHERE username = %s OR email = %s LIMIT 1",
-            (username, username),
-        )
-        if not users:
-            return api_error("ユーザー名またはパスワードが正しくありません", 401)
-
-        user = users[0]
-        password_hash = user.get('password_hash')
-        if not password_hash:
-            app.logger.warning("Missing password hash for user_id=%s", user.get("id"))
-            return api_error("ユーザー名またはパスワードが正しくありません", 401)
-
-        try:
-            password_hash_bytes = (
-                password_hash.encode('utf-8')
-                if isinstance(password_hash, str)
-                else password_hash
-            )
-            password_valid = bcrypt.checkpw(password.encode('utf-8'), password_hash_bytes)
-        except (TypeError, ValueError):
-            app.logger.warning("Invalid password hash for user_id=%s", user.get("id"))
-            password_valid = False
-
-        if not password_valid:
-            return api_error("ユーザー名またはパスワードが正しくありません", 401)
-
-        try:
-            db.execute_non_query(
-                "UPDATE users SET last_login_at = %s WHERE id = %s",
-                (datetime.now(), user['id']),
-            )
-        except Exception:
-            app.logger.warning("Failed to update last_login_at for user_id=%s", user.get("id"))
-
-        session.clear()
-        session["user_id"] = int(user["id"])
-        session.permanent = True
-
-        user_response = {
-            key: value
-            for key, value in user.items()
-            if key not in ["password", "password_hash"]
-        }
-        return jsonify({"success": True, "data": user_response})
-    except Exception:
-        app.logger.exception("Login failed")
-        return api_error("ログイン処理中にエラーが発生しました", 500)
-    finally:
-        if db:
-            db.close()
-
-
-@app.route('/api/auth/logout', methods=['POST'])
-def logout():
-    """サーバー側セッションを破棄する。"""
-    session.clear()
-    return jsonify({"success": True, "message": "ログアウトしました"})
-
-
-@app.route('/api/auth/signup', methods=['POST'])
-@limiter.limit("3 per hour")
-def signup():
-
-    """新規ユーザー登録"""
-    try:
-        data = request.get_json(silent=True) or {}
-        username = str(data.get('username', '')).strip()
-        email = str(data.get('email', '')).strip()
-        password = str(data.get('password', ''))
-
-        if not username or not email or not password:
-            return jsonify({
-                "success": False,
-                "error": "すべての項目を入力してください"
-            }), 400
-        
-        if len(password) < 8:
-            return jsonify({
-                "success": False,
-                "error": "パスワードは8文字以上で入力してください"
-            }), 400
-        
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        
-        # ユーザー名の重複チェック
-        existing_user = db.execute_query(
-            "SELECT id FROM users WHERE username = %s LIMIT 1",
-            (username,)
-        )
-        if existing_user:
-            db.close()
-            return jsonify({
-                "success": False,
-                "error": "このユーザー名は既に使用されています"
-            }), 400
-        
-        # メールアドレスの重複チェック
-        existing_email = db.execute_query(
-            "SELECT id FROM users WHERE email = %s LIMIT 1",
-            (email,)
-        )
-        if existing_email:
-            db.close()
-            return jsonify({
-                "success": False,
-                "error": "このメールアドレスは既に使用されています"
-            }), 400
-        
-        # パスワードをハッシュ化
-        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
-        # ユーザーを登録
-        # usersテーブルのカラム: id, username, email, password_hash
-        try:
-            db.execute_non_query(
-                "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)",
-                (username, email, password_hash)
-            )
-        except Exception:
-            db.close()
-            app.logger.exception("Signup insert failed")
-            return api_error("ユーザー登録に失敗しました", 500)
-
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "message": "アカウントが作成されました"
-        })
-        
-    except Exception:
-        app.logger.exception("Signup failed")
-        return api_error("ユーザー登録に失敗しました", 500)
-
-
-@app.route('/api/auth/reset-password', methods=['POST'])
-def reset_password():
-    """メール配送を実装するまで、誤解を招く成功応答を返さない。"""
-    return api_error("パスワードリセット機能は現在ご利用いただけません", 501)
-
-
-@app.route('/api/auth/profile', methods=['GET'])
-@require_authenticated_user
-def get_profile():
-    """認証済み本人のプロフィール情報を取得する。"""
-    try:
-        user_id = session["user_id"]
-        db = DatabaseConnection(**MYSQL_CONFIG)
-
-        # ユーザー情報を取得
-        user = db.execute_query(
-            "SELECT id, username, email FROM users WHERE id = %s LIMIT 1",
-            (user_id,)
-        )
-        
-        if not user:
-            db.close()
-            return jsonify({
-                "success": False,
-                "error": "ユーザーが見つかりません"
-            }), 404
-        
-        user = user[0]
-        
-        # users_preferencesテーブルから設定を取得
-        preferences = []
-        try:
-            preferences = db.execute_query(
-                "SELECT disability_type, favorite_stations, preferred_features FROM users_preferences WHERE user_id = %s LIMIT 1",
-                (user_id,)
-            )
-        except Exception as e:
-            # users_preferencesテーブルが存在しない、またはエラーが発生した場合
-            print(f"Warning: Failed to fetch from users_preferences: {str(e)}")
-            preferences = []
-        
-        # JSONフィールドをパース
-        profile_data = {
-            "id": user.get("id"),
-            "username": user.get("username"),
-            "email": user.get("email"),
-        }
-        
-        if preferences and len(preferences) > 0:
-            pref = preferences[0]
-            # disability_typeをパース
-            disability_type = pref.get("disability_type")
-            if disability_type:
-                try:
-                    # JSON文字列をパース（Unicodeエスケープも正しく処理される）
-                    if isinstance(disability_type, str):
-                        parsed = json.loads(disability_type)
-                        profile_data["disability_type"] = parsed if isinstance(parsed, list) else [parsed] if parsed else []
-                    else:
-                        profile_data["disability_type"] = disability_type if isinstance(disability_type, list) else []
-                except Exception as e:
-                    print(f"Warning: Failed to parse disability_type: {e}")
-                    profile_data["disability_type"] = []
-            else:
-                profile_data["disability_type"] = []
-            
-            # favorite_stationsをパースして駅IDから駅名に変換
-            favorite_stations = pref.get("favorite_stations")
-            if favorite_stations:
-                try:
-                    station_ids = json.loads(favorite_stations) if isinstance(favorite_stations, str) else favorite_stations
-                    if isinstance(station_ids, list) and len(station_ids) > 0:
-                        # 駅IDのリストから駅名を取得（SQLインジェクション対策のため整数に変換）
-                        station_ids_int = []
-                        for sid in station_ids:
-                            try:
-                                station_ids_int.append(int(sid))
-                            except (ValueError, TypeError):
-                                continue
-                        
-                        if station_ids_int:
-                            # 駅IDの配列として返す（データベース上でIDで表示されるように）
-                            profile_data["favorite_stations"] = station_ids_int
-                        else:
-                            profile_data["favorite_stations"] = []
-                    else:
-                        profile_data["favorite_stations"] = []
-                except Exception as e:
-                    print(f"Warning: Failed to parse favorite_stations: {e}")
-                    profile_data["favorite_stations"] = []
-            else:
-                profile_data["favorite_stations"] = []
-            
-            # preferred_featuresをパース
-            preferred_features = pref.get("preferred_features")
-            if preferred_features:
-                try:
-                    profile_data["preferred_features"] = json.loads(preferred_features) if isinstance(preferred_features, str) else preferred_features
-                except:
-                    profile_data["preferred_features"] = []
-            else:
-                profile_data["preferred_features"] = []
-        else:
-            # users_preferencesにデータがない場合はデフォルト値
-            profile_data["disability_type"] = []
-            profile_data["favorite_stations"] = []
-            profile_data["preferred_features"] = []
-        
-        db.close()
-        
-        return jsonify({
-            "success": True,
-            "data": profile_data
-        })
-        
-    except Exception:
-        app.logger.exception("Profile retrieval failed")
-        return api_error("プロフィールの取得に失敗しました", 500)
-
-
-PREFERENCE_FIELDS = (
-    "disability_type",
-    "favorite_stations",
-    "preferred_features",
-)
-
-
-def serialize_preference_value(field: str, value: Any) -> Optional[str]:
-    """PATCHで指定された選好値を検証し、保存用JSONへ変換する。"""
-    if not isinstance(value, list):
-        raise ValueError(f"{field} must be an array")
-
-    if field == "favorite_stations":
-        station_ids: List[int] = []
-        for station_id in value:
-            try:
-                normalized_id = int(station_id)
-            except (TypeError, ValueError) as error:
-                raise ValueError("favorite_stations must contain integer IDs") from error
-            if normalized_id <= 0:
-                raise ValueError("favorite_stations must contain positive IDs")
-            station_ids.append(normalized_id)
-        value = station_ids
-
-    return json.dumps(value, ensure_ascii=False) if value else None
-
-
-@app.route('/api/auth/profile', methods=['PUT', 'PATCH'])
-@require_authenticated_user
-def update_profile():
-    """認証済み本人のプロフィールを部分更新する。"""
-    db = None
-    try:
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return api_error("JSON形式の更新内容を指定してください", 400)
-
-        user_id = session["user_id"]
-        updateable_fields = ("username", *PREFERENCE_FIELDS)
-        supplied_fields = [field for field in updateable_fields if field in data]
-
-        if not supplied_fields:
-            return api_error("更新する項目を少なくとも1つ指定してください", 400)
-
-        username = None
-        if "username" in data:
-            if not isinstance(data["username"], str) or not data["username"].strip():
-                return api_error("ユーザー名は1文字以上の文字列で指定してください", 400)
-            username = data["username"].strip()
-
-        preference_values: Dict[str, Optional[str]] = {}
-        for field in PREFERENCE_FIELDS:
-            if field in data:
-                try:
-                    preference_values[field] = serialize_preference_value(field, data[field])
-                except ValueError as error:
-                    return api_error(str(error), 400)
-
-        db = DatabaseConnection(**MYSQL_CONFIG)
-        user = db.execute_query(
-            "SELECT id FROM users WHERE id = %s LIMIT 1",
-            (user_id,),
-        )
-        if not user:
-            return api_error("ユーザーが見つかりません", 404)
-
-        if username is not None:
-            existing_username = db.execute_query(
-                "SELECT id FROM users WHERE username = %s AND id != %s LIMIT 1",
-                (username, user_id),
-            )
-            if existing_username:
-                return api_error("このユーザー名は既に使用されています", 400)
-            db.execute_non_query(
-                "UPDATE users SET username = %s WHERE id = %s",
-                (username, user_id),
-            )
-
-        if preference_values:
-            existing_preference = db.execute_query(
-                "SELECT user_id FROM users_preferences WHERE user_id = %s LIMIT 1",
-                (user_id,),
-            )
-            if existing_preference:
-                assignments: List[str] = []
-                params: List[Any] = []
-                for field, serialized_value in preference_values.items():
-                    if serialized_value is None:
-                        assignments.append(f"{field} = NULL")
-                    else:
-                        assignments.append(f"{field} = %s")
-                        params.append(serialized_value)
-                params.append(user_id)
-                query = f"UPDATE users_preferences SET {', '.join(assignments)} WHERE user_id = %s"
-                db.execute_non_query(query, tuple(params))
-            else:
-                db.execute_non_query(
-                    """INSERT INTO users_preferences
-                       (user_id, disability_type, favorite_stations, preferred_features)
-                       VALUES (%s, %s, %s, %s)""",
-                    (
-                        user_id,
-                        preference_values.get("disability_type"),
-                        preference_values.get("favorite_stations"),
-                        preference_values.get("preferred_features"),
-                    ),
-                )
-
-        return jsonify({
-            "success": True,
-            "message": "プロフィールを更新しました",
-            "updated_fields": supplied_fields,
-        })
-    except Exception:
-        app.logger.exception("Profile update failed")
-        return api_error("プロフィールの更新に失敗しました", 500)
-    finally:
-        if db:
-            db.close()
 
 
 if __name__ == '__main__':

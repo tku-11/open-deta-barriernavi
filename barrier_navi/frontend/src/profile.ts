@@ -1,3 +1,5 @@
+import { API_BASE_URL } from './api.js';
+
 /**
  * バリアナビ プロフィール画面
  */
@@ -24,7 +26,7 @@ interface ApiResponse<T> {
 }
 
 class ProfilePage {
-  private apiBaseUrl = '/api';
+  private apiBaseUrl = API_BASE_URL;
   
   private favoriteStations: Array<{ id: number; name: string }> = [];
   private stationSearchTimeout: number | null = null;

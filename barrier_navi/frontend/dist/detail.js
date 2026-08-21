@@ -1,7 +1,7 @@
-"use strict";
+import { API_BASE_URL } from './api.js';
 class DetailPage {
     constructor() {
-        this.apiBaseUrl = '/api';
+        this.apiBaseUrl = API_BASE_URL;
         this.titleEl = null;
         this.scoreEl = null;
         this.metaEl = null;

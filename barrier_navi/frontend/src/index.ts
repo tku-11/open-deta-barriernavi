@@ -1,3 +1,5 @@
+import { API_BASE_URL } from './api.js';
+
 /**
  * バリアナビ（身体障害向け）フロントエンド
  */
@@ -135,7 +137,7 @@ const PREFERRED_FEATURE_TO_METRIC_KEY: Record<string, Record<'body' | 'hearing' 
 };
 
 class StationApp {
-  private apiBaseUrl = '/api';
+  private apiBaseUrl = API_BASE_URL;
   private currentPage = 1;
   private pageSize = 10;
   private selectedPrefecture: string | null = null;

@@ -1,7 +1,4 @@
-"use strict";
-/**
- * バリアナビ（身体障害向け）フロントエンド
- */
+import { API_BASE_URL } from './api.js';
 const BODY_METRICS = [
     // フラグ型（〇×で表せる項目）：設置されていれば1点
     { key: 'step_response_status', label: '段差への対応', required: 1, type: 'flag' },
@@ -86,7 +83,7 @@ const PREFERRED_FEATURE_TO_METRIC_KEY = {
 };
 class StationApp {
     constructor() {
-        this.apiBaseUrl = '/api';
+        this.apiBaseUrl = API_BASE_URL;
         this.currentPage = 1;
         this.pageSize = 10;
         this.selectedPrefecture = null;

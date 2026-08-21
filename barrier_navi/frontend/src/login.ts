@@ -1,9 +1,11 @@
+import { API_BASE_URL } from './api.js';
+
 /**
  * バリナビ ログイン画面
  */
 
 class LoginPage {
-  private apiBaseUrl = '/api';
+  private apiBaseUrl = API_BASE_URL;
 
   constructor() {
     this.init();

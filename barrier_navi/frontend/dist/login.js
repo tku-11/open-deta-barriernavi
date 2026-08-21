@@ -1,10 +1,10 @@
-"use strict";
+import { API_BASE_URL } from './api.js';
 /**
  * バリナビ ログイン画面
  */
 class LoginPage {
     constructor() {
-        this.apiBaseUrl = '/api';
+        this.apiBaseUrl = API_BASE_URL;
         this.init();
     }
     init() {

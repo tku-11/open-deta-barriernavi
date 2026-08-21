@@ -1,10 +1,7 @@
-"use strict";
-/**
- * バリアナビ プロフィール画面
- */
+import { API_BASE_URL } from './api.js';
 class ProfilePage {
     constructor() {
-        this.apiBaseUrl = '/api';
+        this.apiBaseUrl = API_BASE_URL;
         this.favoriteStations = [];
         this.stationSearchTimeout = null;
         this.init();

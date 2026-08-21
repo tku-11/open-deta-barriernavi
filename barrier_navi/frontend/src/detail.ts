@@ -1,3 +1,5 @@
+import { API_BASE_URL } from './api.js';
+
 // 型定義はそのまま使います
 interface DetailApiResponse<T> {
   success: boolean;
@@ -38,7 +40,7 @@ interface DetailStation {
 }
 
 class DetailPage {
-  private apiBaseUrl = '/api';
+  private apiBaseUrl = API_BASE_URL;
   private titleEl: HTMLElement | null = null;
   private scoreEl: HTMLElement | null = null;
   private metaEl: HTMLElement | null = null;
