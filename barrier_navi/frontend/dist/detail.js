@@ -1,7 +1,6 @@
-import { API_BASE_URL } from './api.js';
+import { getApi } from './api.js';
 class DetailPage {
     constructor() {
-        this.apiBaseUrl = API_BASE_URL;
         this.titleEl = null;
         this.scoreEl = null;
         this.metaEl = null;
@@ -61,13 +60,8 @@ class DetailPage {
         }
     }
     async fetchApi(endpoint) {
-        try {
-            const res = await fetch(`${this.apiBaseUrl}${endpoint}`);
-            return await res.json();
-        }
-        catch (error) {
-            return { success: false, error: String(error) };
-        }
+        const result = await getApi(endpoint);
+        return result.body;
     }
     renderDetail(detail) {
         if (!this.titleEl || !this.scoreEl || !this.metaEl || !this.tableBodyEl)

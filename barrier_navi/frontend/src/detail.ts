@@ -1,11 +1,6 @@
-import { API_BASE_URL } from './api.js';
+import { ApiResponse, getApi } from './api.js';
 
 // 型定義はそのまま使います
-interface DetailApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
 
 interface DetailScore {
   met_items: number;
@@ -40,7 +35,7 @@ interface DetailStation {
 }
 
 class DetailPage {
-  private apiBaseUrl = API_BASE_URL;
+  
   private titleEl: HTMLElement | null = null;
   private scoreEl: HTMLElement | null = null;
   private metaEl: HTMLElement | null = null;
@@ -106,13 +101,9 @@ class DetailPage {
     }
   }
 
-  private async fetchApi<T>(endpoint: string): Promise<DetailApiResponse<T>> {
-    try {
-      const res = await fetch(`${this.apiBaseUrl}${endpoint}`);
-      return await res.json();
-    } catch (error) {
-      return { success: false, error: String(error) };
-    }
+  private async fetchApi<T>(endpoint: string): Promise<ApiResponse<T>> {
+    const result = await getApi<T>(endpoint);
+    return result.body;
   }
 
   private renderDetail(detail: DetailStation): void {

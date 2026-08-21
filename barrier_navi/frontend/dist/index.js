@@ -1,8 +1,8 @@
-import { API_BASE_URL } from './api.js';
+import { getApi } from './api.js';
+import { getClientAuthState } from './auth.js';
 import { BODY_METRICS, HEARING_METRICS, metricKeysForPreferredFeature, VISION_METRICS, } from './metrics.js';
 class StationApp {
     constructor() {
-        this.apiBaseUrl = API_BASE_URL;
         this.currentPage = 1;
         this.pageSize = 10;
         this.selectedPrefecture = null;
@@ -181,21 +181,13 @@ class StationApp {
      * プロフィールの優先機能を読み込んで自動的に適用
      */
     async applyPreferredFeatures() {
-        // ログイン状態を確認
-        const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-        const userId = localStorage.getItem('userId');
-        if (!isLoggedIn || !userId) {
+        const authState = getClientAuthState();
+        if (!authState.isLoggedIn || !authState.userId) {
             // ログインしていない場合は何もしない
             return;
         }
         try {
-            // プロフィールデータを取得
-            const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-            const data = await response.json();
+            const { body: data } = await getApi('/auth/profile');
             if (data.success && data.data && data.data.preferred_features && data.data.preferred_features.length > 0) {
                 // 優先機能をメトリックキーに変換
                 const metricKeys = [];
@@ -230,22 +222,14 @@ class StationApp {
      * お気に入り駅IDを取得
      */
     async loadFavoriteStations() {
-        // ログイン状態を確認
-        const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-        const userId = localStorage.getItem('userId');
-        if (!isLoggedIn || !userId) {
+        const authState = getClientAuthState();
+        if (!authState.isLoggedIn || !authState.userId) {
             // ログインしていない場合は空配列を設定
             this.favoriteStationIds = [];
             return;
         }
         try {
-            // プロフィールデータを取得
-            const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-            const data = await response.json();
+            const { body: data } = await getApi('/auth/profile');
             if (data.success && data.data && data.data.favorite_stations && Array.isArray(data.data.favorite_stations)) {
                 // お気に入り駅IDを保存
                 this.favoriteStationIds = data.data.favorite_stations.map(id => parseInt(String(id))).filter(id => !isNaN(id) && id > 0);
@@ -276,14 +260,8 @@ class StationApp {
         }
     }
     async fetchApi(endpoint) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}${endpoint}`);
-            return await response.json();
-        }
-        catch (error) {
-            console.error('API Error:', error);
-            return { success: false, error: String(error) };
-        }
+        const result = await getApi(endpoint);
+        return result.body;
     }
     async loadStations() {
         const loadingIndicator = document.getElementById('loading');
@@ -508,9 +486,8 @@ class StationApp {
         if (!lineSelect)
             return;
         try {
-            const res = await fetch('/api/lines');
-            const json = await res.json();
-            if (json.success) {
+            const { body: json } = await getApi('/lines');
+            if (json.success && json.data) {
                 lineSelect.innerHTML = '<option value="">指定なし</option>';
                 json.data.forEach((line) => {
                     const option = document.createElement('option');

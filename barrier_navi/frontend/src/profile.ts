@@ -1,4 +1,5 @@
-import { API_BASE_URL } from './api.js';
+import { ApiResponse, getApi, patchApi } from './api.js';
+import { clearClientAuthState, getClientAuthState, updateClientUsername } from './auth.js';
 
 /**
  * バリアナビ プロフィール画面
@@ -19,14 +20,10 @@ interface Station {
   city?: string;
 }
 
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
+
 
 class ProfilePage {
-  private apiBaseUrl = API_BASE_URL;
+  
   
   private favoriteStations: Array<{ id: number; name: string }> = [];
   private stationSearchTimeout: number | null = null;
@@ -42,8 +39,7 @@ class ProfilePage {
   }
 
   private checkAuthStatus(): void {
-    const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-    if (!isLoggedIn) {
+    if (!getClientAuthState().isLoggedIn) {
       window.location.href = '/login';
     }
   }
@@ -146,8 +142,7 @@ class ProfilePage {
 
   private async searchStations(keyword: string): Promise<void> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/stations/search?keyword=${encodeURIComponent(keyword)}&limit=10`);
-      const data: ApiResponse<Station[]> = await response.json();
+      const { body: data } = await getApi<Station[]>(`/stations/search?keyword=${encodeURIComponent(keyword)}&limit=10`);
 
       if (data.success && data.data) {
         this.showStationSearchResults(data.data);
@@ -256,19 +251,13 @@ class ProfilePage {
     
 
     try {
-            const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
-
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const data: ApiResponse<ProfileData> = await response.json();
+      const { status, body: data } = await getApi<ProfileData>('/auth/profile');
 
       if (loadingEl) loadingEl.style.display = 'none';
 
-            if (response.status === 401) {
-        this.clearClientAuth();
+                  if (status === 401) {
+        clearClientAuthState();
+
         window.location.href = '/login';
         return;
       }
@@ -295,16 +284,17 @@ class ProfilePage {
     }
   }
 
-  private async loadUserInfo(): Promise<void> {
-    // ユーザー名はlocalStorageから取得
-    const username = localStorage.getItem('username') || '';
+    private async loadUserInfo(): Promise<void> {
+    const authState = getClientAuthState();
+    const username = authState.username || '';
+
     const usernameInput = document.getElementById('username') as HTMLInputElement;
     if (usernameInput) {
       usernameInput.value = username;
     }
 
-    // メールアドレスはlocalStorageから取得
-    const email = localStorage.getItem('userEmail') || '';
+        const email = authState.userEmail || '';
+
     const emailInput = document.getElementById('email') as HTMLInputElement;
     if (emailInput) {
       emailInput.value = email;
@@ -356,8 +346,8 @@ class ProfilePage {
     const stations: Array<{ id: number; name: string }> = [];
     for (const id of stationIds) {
       try {
-        const response = await fetch(`${this.apiBaseUrl}/stations/${id}`);
-        const data: ApiResponse<Station> = await response.json();
+                const { body: data } = await getApi<Station>(`/stations/${id}`);
+
         if (data.success && data.data) {
           stations.push({ id: data.data.id, name: data.data.station_name });
         } else {
@@ -382,8 +372,8 @@ class ProfilePage {
       
       // 駅名から駅IDを検索（完全一致）
       try {
-        const response = await fetch(`${this.apiBaseUrl}/stations/search?keyword=${encodeURIComponent(cleanName)}&limit=50`);
-        const data: ApiResponse<Station[]> = await response.json();
+                const { body: data } = await getApi<Station[]>(`/stations/search?keyword=${encodeURIComponent(cleanName)}&limit=50`);
+
         if (data.success && data.data && data.data.length > 0) {
           // 完全一致する駅を探す
           const exactMatch = data.data.find(station => station.station_name === cleanName);
@@ -457,20 +447,13 @@ class ProfilePage {
     try {
       const requestData = { ...data };
 
-      const response = await fetch(`${this.apiBaseUrl}/auth/profile`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData),
-      });
-
-      const result: ApiResponse<ProfileData> = await response.json();
+      const { body: result } = await patchApi<ProfileData>('/auth/profile', requestData);
 
       if (result.success) {
         // ユーザー名が変更された場合、localStorageも更新
         if (data.username) {
-          localStorage.setItem('username', data.username);
+                    updateClientUsername(data.username);
+
         }
         
         // 保存成功メッセージを表示
@@ -497,13 +480,7 @@ class ProfilePage {
     }
   }
 
-    private clearClientAuth(): void {
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('isGuest');
-    localStorage.removeItem('username');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userEmail');
-  }
+    
 
   private showError(message: string): void {
 

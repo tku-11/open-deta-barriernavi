@@ -31,10 +31,15 @@ class PageRoutesTests(unittest.TestCase):
         self.assertEqual(metrics_response.status_code, 200)
         self.assertIn(b"BODY_METRICS", metrics_response.data)
 
+        auth_response = self.client.get("/dist/auth.js")
+        self.assertEqual(auth_response.status_code, 200)
+        self.assertIn(b"clearClientAuthState", auth_response.data)
+
     def test_api_dependent_page_scripts_are_loaded_as_es_modules(self):
         expected_scripts = {
             "/": b'type="module" src="/dist/login.js"',
             "/login": b'type="module" src="/dist/login.js"',
+            "/home": b'type="module" src="/dist/home.js"',
             "/hearing": b'type="module" src="/dist/index.js"',
             "/vision": b'type="module" src="/dist/index.js"',
             "/profile": b'type="module" src="/dist/profile.js"',

@@ -1,10 +1,10 @@
-import { API_BASE_URL } from './api.js';
+import { postApi } from './api.js';
+import { isClientAuthenticated, setAuthenticatedUser, startGuestSession } from './auth.js';
 /**
  * バリナビ ログイン画面
  */
 class LoginPage {
     constructor() {
-        this.apiBaseUrl = API_BASE_URL;
         this.init();
     }
     init() {
@@ -15,12 +15,8 @@ class LoginPage {
         // URLパラメータに ?force=true がない場合のみ、既にログインしている場合はホーム画面にリダイレクト
         const urlParams = new URLSearchParams(window.location.search);
         const force = urlParams.get('force') === 'true';
-        if (!force) {
-            const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-            const isGuest = localStorage.getItem('isGuest') === 'true';
-            if (isLoggedIn || isGuest) {
-                window.location.href = '/home';
-            }
+        if (!force && isClientAuthenticated()) {
+            window.location.href = '/home';
         }
     }
     setupEventListeners() {
@@ -81,15 +77,7 @@ class LoginPage {
             const response = await this.loginUser(username, password);
             if (response.success) {
                 // ログイン成功
-                localStorage.setItem('isLoggedIn', 'true');
-                const displayName = response.user?.username || username;
-                localStorage.setItem('username', displayName);
-                if (response.user?.id) {
-                    localStorage.setItem('userId', response.user.id.toString());
-                }
-                if (response.user?.email) {
-                    localStorage.setItem('userEmail', response.user.email);
-                }
+                setAuthenticatedUser(response.user || {}, username);
                 window.location.href = '/home';
             }
             else {
@@ -103,34 +91,14 @@ class LoginPage {
         }
     }
     async loginUser(username, password) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/auth/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ username, password }),
-            });
-            const data = await response.json();
-            if (response.ok && data.success) {
-                return { success: true, user: data.data };
-            }
-            else {
-                return { success: false, error: data.error || 'ログインに失敗しました' };
-            }
+        const result = await postApi('/auth/login', { username, password });
+        if (result.body.success) {
+            return { success: true, user: result.body.data };
         }
-        catch (error) {
-            console.error('Login error:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
-                return { success: false, error: 'APIサーバーに接続できません。サーバーが起動しているか確認してください。' };
-            }
-            return { success: false, error: 'ログイン処理中にエラーが発生しました' };
-        }
+        return { success: false, error: result.body.error || 'ログインに失敗しました' };
     }
     handleGuestLogin() {
-        localStorage.setItem('isGuest', 'true');
-        localStorage.setItem('username', 'ゲスト');
+        startGuestSession();
         window.location.href = '/home';
     }
     showSignupModal() {
@@ -199,41 +167,10 @@ class LoginPage {
         }
     }
     async createUser(username, email, password) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/auth/signup`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ username, email, password }),
-            });
-            // レスポンスがJSONでない場合の処理
-            let data;
-            try {
-                data = await response.json();
-            }
-            catch (e) {
-                const text = await response.text();
-                console.error('JSON parse error:', text);
-                return { success: false, error: `サーバーエラー: ${response.status} ${response.statusText}` };
-            }
-            if (response.ok && data.success) {
-                return { success: true };
-            }
-            else {
-                const errorMsg = data.error || data.message || 'アカウント作成に失敗しました';
-                console.error('Signup API error:', errorMsg);
-                return { success: false, error: errorMsg };
-            }
-        }
-        catch (error) {
-            console.error('Signup network error:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
-                return { success: false, error: 'APIサーバーに接続できません。サーバーが起動しているか確認してください。' };
-            }
-            return { success: false, error: `アカウント作成処理中にエラーが発生しました: ${errorMessage}` };
-        }
+        const result = await postApi('/auth/signup', { username, email, password });
+        return result.body.success
+            ? { success: true }
+            : { success: false, error: result.body.error || 'アカウント作成に失敗しました' };
     }
     showResetPasswordModal() {
         const modal = document.getElementById('reset-password-modal');
@@ -294,30 +231,10 @@ class LoginPage {
         }
     }
     async resetPassword(email) {
-        try {
-            const response = await fetch(`${this.apiBaseUrl}/auth/reset-password`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ email }),
-            });
-            const data = await response.json();
-            if (response.ok && data.success) {
-                return { success: true };
-            }
-            else {
-                return { success: false, error: data.error || 'パスワードリセットに失敗しました' };
-            }
-        }
-        catch (error) {
-            console.error('Password reset error:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
-                return { success: false, error: 'APIサーバーに接続できません。サーバーが起動しているか確認してください。' };
-            }
-            return { success: false, error: 'パスワードリセット処理中にエラーが発生しました' };
-        }
+        const result = await postApi('/auth/reset-password', { email });
+        return result.body.success
+            ? { success: true }
+            : { success: false, error: result.body.error || 'パスワードリセットに失敗しました' };
     }
     showError(element, message) {
         if (element) {

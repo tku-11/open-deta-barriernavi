@@ -1,6 +1,11 @@
+import { postApi } from './api.js';
+import { clearClientAuthState, getClientAuthState, isClientAuthenticated } from './auth.js';
+
 /**
  * バリアナビ ホーム画面
  */
+
+
 
 class HomePage {
   constructor() {
@@ -13,13 +18,10 @@ class HomePage {
   }
 
   private checkAuthStatus(): void {
-    // ログインしていない場合はログイン画面にリダイレクト
-    const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
-    const isGuest = localStorage.getItem('isGuest') === 'true';
-    
-    if (!isLoggedIn && !isGuest) {
-      window.location.href = 'view/login.html';
+        if (!isClientAuthenticated()) {
+      window.location.href = '/login';
     }
+
   }
 
   private setupEventListeners(): void {
@@ -30,9 +32,10 @@ class HomePage {
   }
 
   private showProfileMenu(): void {
-    const username = localStorage.getItem('username') || 'ユーザー';
-    const isGuest = localStorage.getItem('isGuest') === 'true';
-    
+    const authState = getClientAuthState();
+    const username = authState.username || 'ユーザー';
+    const isGuest = authState.isGuest;
+
     const menu = document.createElement('div');
     menu.className = 'profile-menu';
     menu.innerHTML = `
@@ -111,17 +114,12 @@ class HomePage {
     if (!confirm('ログアウトしますか？')) return;
 
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await postApi('/auth/logout');
     } catch (error) {
       // 通信に失敗しても、端末側の表示状態は必ず消去する。
       console.error('Logout request failed:', error);
     } finally {
-      localStorage.removeItem('isLoggedIn');
-      localStorage.removeItem('isGuest');
-      localStorage.removeItem('username');
-      localStorage.removeItem('rememberMe');
-      localStorage.removeItem('userId');
-      localStorage.removeItem('userEmail');
+      clearClientAuthState();
       window.location.href = '/';
     }
   }
