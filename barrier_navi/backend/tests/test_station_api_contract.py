@@ -113,6 +113,46 @@ class StationApiContractTests(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["data"][0]["station_id"], 101)
 
+    def test_favorite_stations_are_prioritized_before_server_pagination(self):
+        first_page = self.client.get(
+            "/api/body/stations",
+            query_string={"limit": 1, "offset": 0, "favorite_station_ids": json.dumps([102])},
+        )
+        second_page = self.client.get(
+            "/api/body/stations",
+            query_string={"limit": 1, "offset": 1, "favorite_station_ids": json.dumps([102])},
+        )
+
+        self.assertEqual(first_page.status_code, 200)
+        self.assertEqual(first_page.get_json()["count"], 1)
+        self.assertEqual(first_page.get_json()["total_count"], 2)
+        self.assertEqual(first_page.get_json()["data"][0]["station_id"], 102)
+        self.assertEqual(second_page.get_json()["data"][0]["station_id"], 101)
+
+    def test_missing_or_invalid_favorite_station_ids_keep_existing_order(self):
+        baseline = self.client.get("/api/body/stations", query_string={"limit": 2})
+        invalid_json = self.client.get(
+            "/api/body/stations",
+            query_string={"limit": 2, "favorite_station_ids": "not-json"},
+        )
+        mixed_values = self.client.get(
+            "/api/body/stations",
+            query_string={"limit": 2, "favorite_station_ids": json.dumps([102, "101", -1, True, 102])},
+        )
+
+        self.assertEqual(
+            [item["station_id"] for item in baseline.get_json()["data"]],
+            [101, 102],
+        )
+        self.assertEqual(
+            [item["station_id"] for item in invalid_json.get_json()["data"]],
+            [101, 102],
+        )
+        self.assertEqual(
+            [item["station_id"] for item in mixed_values.get_json()["data"]],
+            [102, 101],
+        )
+
     def test_vision_detail_has_ten_metrics_and_score_label(self):
         response = self.client.get("/api/vision/stations/101")
         self.assertEqual(response.status_code, 200)
