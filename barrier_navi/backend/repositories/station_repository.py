@@ -130,3 +130,57 @@ class StationRepository:
             if isinstance(line_value, str):
                 lines.update(part.strip() for part in line_value.split("・") if part.strip())
         return sorted(lines)
+
+    def get_average_aggregates(self) -> Dict[str, Any] | None:
+        """駅評価項目の平均値を計算するための集計行を取得する。"""
+        rows = self._execute_query(
+            """SELECT
+                 COUNT(*) as total_stations,
+                 AVG(num_platforms) as avg_num_platforms,
+                 AVG(num_step_free_platforms) as avg_num_step_free_platforms,
+                 AVG(num_elevators) as avg_num_elevators,
+                 AVG(num_compliant_elevators) as avg_num_compliant_elevators,
+                 AVG(num_escalators) as avg_num_escalators,
+                 AVG(num_compliant_escalators) as avg_num_compliant_escalators,
+                 AVG(num_other_lifts) as avg_num_other_lifts,
+                 AVG(num_slopes) as avg_num_slopes,
+                 AVG(num_compliant_slopes) as avg_num_compliant_slopes,
+                 AVG(num_wheelchair_accessible_platforms) as avg_num_wheelchair_accessible_platforms,
+                 AVG(CASE WHEN step_response_status = 1 THEN 1.0 ELSE 0.0 END) as avg_step_response_status,
+                 AVG(CASE WHEN has_tactile_paving = 1 THEN 1.0 ELSE 0.0 END) as avg_has_tactile_paving,
+                 AVG(CASE WHEN has_guidance_system = 1 THEN 1.0 ELSE 0.0 END) as avg_has_guidance_system,
+                 AVG(CASE WHEN has_accessible_restroom = 1 THEN 1.0 ELSE 0.0 END) as avg_has_accessible_restroom,
+                 AVG(CASE WHEN has_accessible_gate = 1 THEN 1.0 ELSE 0.0 END) as avg_has_accessible_gate,
+                 AVG(CASE WHEN has_fall_prevention = 1 THEN 1.0 ELSE 0.0 END) as avg_has_fall_prevention,
+                 AVG(CASE WHEN num_platforms > 0 THEN num_step_free_platforms / num_platforms ELSE 0.0 END) as avg_platform_ratio,
+                 AVG(CASE WHEN num_elevators > 0 THEN num_compliant_elevators / num_elevators ELSE 0.0 END) as avg_elevator_ratio,
+                 AVG(CASE WHEN num_escalators > 0 THEN num_compliant_escalators / num_escalators ELSE 0.0 END) as avg_escalator_ratio
+               FROM stations"""
+        )
+        return rows[0] if rows else None
+
+    def list_median_source_rows(self) -> List[Dict[str, Any]]:
+        """駅評価項目の中央値計算に必要な正規化済み行を取得する。"""
+        return self._execute_query(
+            """SELECT
+                 num_platforms,
+                 num_step_free_platforms,
+                 num_elevators,
+                 num_compliant_elevators,
+                 num_escalators,
+                 num_compliant_escalators,
+                 num_other_lifts,
+                 num_slopes,
+                 num_compliant_slopes,
+                 num_wheelchair_accessible_platforms,
+                 CASE WHEN step_response_status = 1 THEN 1.0 ELSE 0.0 END as step_response_status_flag,
+                 CASE WHEN has_tactile_paving = 1 THEN 1.0 ELSE 0.0 END as has_tactile_paving_flag,
+                 CASE WHEN has_guidance_system = 1 THEN 1.0 ELSE 0.0 END as has_guidance_system_flag,
+                 CASE WHEN has_accessible_restroom = 1 THEN 1.0 ELSE 0.0 END as has_accessible_restroom_flag,
+                 CASE WHEN has_accessible_gate = 1 THEN 1.0 ELSE 0.0 END as has_accessible_gate_flag,
+                 CASE WHEN has_fall_prevention = 1 THEN 1.0 ELSE 0.0 END as has_fall_prevention_flag,
+                 CASE WHEN num_platforms > 0 THEN num_step_free_platforms / num_platforms ELSE 0.0 END as platform_ratio,
+                 CASE WHEN num_elevators > 0 THEN num_compliant_elevators / num_elevators ELSE 0.0 END as elevator_ratio,
+                 CASE WHEN num_escalators > 0 THEN num_compliant_escalators / num_escalators ELSE 0.0 END as escalator_ratio
+               FROM stations"""
+        )
