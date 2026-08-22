@@ -197,8 +197,10 @@ class ProfilePage {
         const errorEl = document.getElementById('error-message');
         try {
             const { status, body: data } = await getApi('/auth/profile');
-            if (loadingEl)
+            if (loadingEl) {
                 loadingEl.style.display = 'none';
+                loadingEl.setAttribute('aria-busy', 'false');
+            }
             if (status === 401) {
                 clearClientAuthState();
                 window.location.href = '/login';
@@ -218,8 +220,10 @@ class ProfilePage {
         }
         catch (error) {
             console.error('Load profile error:', error);
-            if (loadingEl)
+            if (loadingEl) {
                 loadingEl.style.display = 'none';
+                loadingEl.setAttribute('aria-busy', 'false');
+            }
             if (errorEl) {
                 errorEl.textContent = 'プロフィールの読み込みに失敗しました';
                 errorEl.style.display = 'block';
@@ -373,6 +377,7 @@ class ProfilePage {
         const successEl = document.getElementById('save-success');
         if (saveBtn) {
             saveBtn.disabled = true;
+            saveBtn.setAttribute('aria-busy', 'true');
             saveBtn.textContent = '保存中...';
         }
         try {
@@ -404,6 +409,7 @@ class ProfilePage {
         finally {
             if (saveBtn) {
                 saveBtn.disabled = false;
+                saveBtn.setAttribute('aria-busy', 'false');
                 saveBtn.textContent = '保存';
             }
         }

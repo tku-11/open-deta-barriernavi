@@ -253,7 +253,10 @@ class ProfilePage {
     try {
       const { status, body: data } = await getApi<ProfileData>('/auth/profile');
 
-      if (loadingEl) loadingEl.style.display = 'none';
+      if (loadingEl) {
+        loadingEl.style.display = 'none';
+        loadingEl.setAttribute('aria-busy', 'false');
+      }
 
                   if (status === 401) {
         clearClientAuthState();
@@ -273,8 +276,12 @@ class ProfilePage {
       }
     } catch (error) {
       console.error('Load profile error:', error);
-      if (loadingEl) loadingEl.style.display = 'none';
+            if (loadingEl) {
+        loadingEl.style.display = 'none';
+        loadingEl.setAttribute('aria-busy', 'false');
+      }
       if (errorEl) {
+
         errorEl.textContent = 'プロフィールの読み込みに失敗しました';
         errorEl.style.display = 'block';
       }
@@ -441,6 +448,7 @@ class ProfilePage {
 
     if (saveBtn) {
       saveBtn.disabled = true;
+      saveBtn.setAttribute('aria-busy', 'true');
       saveBtn.textContent = '保存中...';
     }
 
@@ -473,10 +481,12 @@ class ProfilePage {
       console.error('Save profile error:', error);
       this.showError('プロフィールの保存に失敗しました');
     } finally {
-      if (saveBtn) {
+            if (saveBtn) {
         saveBtn.disabled = false;
+        saveBtn.setAttribute('aria-busy', 'false');
         saveBtn.textContent = '保存';
       }
+
     }
   }
 

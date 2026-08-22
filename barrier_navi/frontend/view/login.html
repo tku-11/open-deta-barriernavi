@@ -54,7 +54,8 @@
                 <button id="guest-btn" class="ghost-btn">ゲストで参加</button>
             </div>
 
-            <div id="error-message" class="error-message" style="display: none;"></div>
+                        <div id="error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
+
         </div>
     </div>
 
@@ -112,7 +113,8 @@
                 </div>
                 <button type="submit" class="primary-btn">アカウントを作成</button>
             </form>
-            <div id="signup-error-message" class="error-message" style="display: none;"></div>
+                        <div id="signup-error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
+
         </div>
     </div>
 
@@ -138,8 +140,9 @@
                 <p class="reset-info">登録済みのメールアドレスにパスワードリセット用のリンクを送信します。</p>
                 <button type="submit" class="primary-btn">リセットリンクを送信</button>
             </form>
-            <div id="reset-error-message" class="error-message" style="display: none;"></div>
-            <div id="reset-success-message" class="success-message" style="display: none;"></div>
+                        <div id="reset-error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
+            <div id="reset-success-message" class="success-message" role="status" aria-live="polite" style="display: none;"></div>
+
         </div>
     </div>
 

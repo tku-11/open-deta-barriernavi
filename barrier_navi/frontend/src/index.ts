@@ -360,11 +360,30 @@ class StationApp {
     return result.body;
   }
 
+  private announceResults(message: string): void {
+    const status = document.getElementById('results-status');
+    if (status) status.textContent = message;
+  }
+
+  private stationDetailUrl(stationId: number): string {
+    const url = new URL('/detail', window.location.origin);
+    url.searchParams.set('stationId', stationId.toString());
+    url.searchParams.set('mode', this.currentMode);
+    return url.toString();
+  }
+
   private async loadStations(): Promise<void> {
     const loadingIndicator = document.getElementById('loading');
     const stationsContainer = document.getElementById('stations-list');
-    if (loadingIndicator) loadingIndicator.style.display = 'block';
-    if (stationsContainer) stationsContainer.innerHTML = '';
+    if (loadingIndicator) {
+      loadingIndicator.style.display = 'block';
+      loadingIndicator.setAttribute('aria-busy', 'true');
+    }
+    if (stationsContainer) {
+      stationsContainer.replaceChildren();
+      stationsContainer.setAttribute('aria-busy', 'true');
+    }
+    this.announceResults('駅情報を読み込んでいます。');
 
     // チェックボックスからフィルターを収集（既に設定されているフィルターとマージ）
     const collectedFilters = this.collectFilters();
@@ -398,16 +417,35 @@ class StationApp {
 
     const response = await this.fetchApi<BodyStationSummary[]>(`${apiPath}?${params.toString()}`);
 
-    if (loadingIndicator) loadingIndicator.style.display = 'none';
+        if (loadingIndicator) {
+      loadingIndicator.style.display = 'none';
+      loadingIndicator.setAttribute('aria-busy', 'false');
+    }
+    if (stationsContainer) stationsContainer.setAttribute('aria-busy', 'false');
 
     if (response.success && response.data) {
       this.totalCount = response.total_count ?? response.data.length;
       this.renderStationCards(response.data);
       this.updatePagination();
       this.updateActiveFilters();
+
+      if (response.data.length === 0) {
+        this.announceResults('条件に一致する駅は見つかりませんでした。');
+      } else {
+        const first = (this.currentPage - 1) * this.pageSize + 1;
+        const last = first + response.data.length - 1;
+        this.announceResults(`${this.totalCount}件中${first}件目から${last}件目を表示しています。`);
+      }
     } else if (stationsContainer) {
-      stationsContainer.innerHTML = `<p class="error">データの取得に失敗しました: ${response.error}</p>`;
+      const message = response.error || '原因を確認できませんでした。';
+      const error = document.createElement('p');
+      error.className = 'error';
+      error.setAttribute('role', 'alert');
+      error.textContent = `データの取得に失敗しました: ${message}`;
+      stationsContainer.replaceChildren(error);
+      this.announceResults('駅情報の取得に失敗しました。');
     }
+
   }
 
   private updateActiveFilters(): void {
@@ -531,8 +569,11 @@ class StationApp {
     container.innerHTML = '';
     stations.forEach((station) => {
       const isFavorite = this.favoriteStationIds.includes(station.station_id);
-      const card = document.createElement('div');
+            const card = document.createElement('a');
       card.className = 'station-card';
+      card.href = this.stationDetailUrl(station.station_id);
+      card.setAttribute('aria-label', `${station.station_name}、${station.score.label}。詳細を表示`);
+
       if (isFavorite) {
         card.classList.add('station-card--favorite');
       }
@@ -548,13 +589,14 @@ class StationApp {
           <span>${this.escapeHtml(station.prefecture)} ${this.escapeHtml(station.city || '')}</span>
           <span>${this.escapeHtml(station.operator)}</span>
         </div>
-        <div class="station-card__progress">
-          <div class="station-card__progress-bar" style="width:${station.score.percentage}%"></div>
+                <div class="station-card__progress" role="progressbar" aria-label="${this.escapeHtml(station.station_name)}の達成率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${station.score.percentage}">
+          <div class="station-card__progress-bar" aria-hidden="true" style="width:${station.score.percentage}%"></div>
         </div>
+
         <div class="station-card__footer">詳細を見る</div>
       `;
-      card.addEventListener('click', () => this.navigateToDetail(station.station_id));
-      container.appendChild(card);
+            container.appendChild(card);
+
     });
   }
 
@@ -580,12 +622,7 @@ class StationApp {
     if (lastButton) lastButton.disabled = isLastPage;   // ★追加
   }
 
-  private navigateToDetail(stationId: number): void {
-    const url = new URL('/detail', window.location.origin);
-    url.searchParams.set('stationId', stationId.toString());
-    url.searchParams.set('mode', this.currentMode);
-    window.location.href = url.toString();
-  }
+  
 
   private escapeHtml(text: string | null | undefined): string {
     if (!text) return '';

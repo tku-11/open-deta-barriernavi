@@ -373,7 +373,8 @@ body.login-page {
 .filter-chip-keyword {
     background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
     border: 1px solid #ffb74d;
-    color: #e65100;
+        color: #8a3200;
+
 }
 
 .active-filter-chip span {
@@ -1389,3 +1390,136 @@ th {
     }
 }
 
+
+/* UX-1: アクセシビリティの共通基盤 */
+:root {
+    --primary: #4153b3;
+    --primary-dark: #2e3d91;
+    --muted: #5b6a8c;
+    --success-text: #146c2e;
+    --success-bg: #ebf7ee;
+    --error-text: #a61b1b;
+    --error-bg: #fff0f0;
+    --focus-ring: #b45309;
+}
+
+body {
+    line-height: 1.5;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+}
+
+.primary-btn:focus-visible,
+.ghost-btn:focus-visible,
+.secondary-btn:focus-visible,
+.category-card:focus-visible,
+.station-card:focus-visible {
+    box-shadow: 0 0 0 3px #ffffff, 0 0 0 6px var(--focus-ring);
+    outline: none;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.status-message {
+    min-height: 1.5em;
+    margin: 12px 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.error-message {
+    background: var(--error-bg);
+    color: var(--error-text);
+    border-color: #d25a5a;
+}
+
+.success-message {
+    background: var(--success-bg);
+    color: var(--success-text);
+    border-color: #4a9b60;
+}
+
+.station-card {
+    display: block;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.station-card[aria-busy="true"] {
+    cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+.detail-table-wrapper {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+table caption {
+    padding: 12px;
+    text-align: left;
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.metric-status {
+    font-weight: 700;
+    text-align: center;
+}
+
+.metric-met .metric-status {
+    color: var(--success-text);
+}
+
+@media (max-width: 640px) {
+    .pagination {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .pagination button {
+        min-height: 44px;
+    }
+
+    .station-card__meta {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+}

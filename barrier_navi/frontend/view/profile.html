@@ -18,8 +18,8 @@
         </header>
 
         <main class="profile-main">
-            <div id="loading" class="loading">読み込み中...</div>
-            <div id="error-message" class="error-message" style="display: none;"></div>
+            <div id="loading" class="loading" role="status" aria-live="polite" aria-busy="true">読み込み中...</div>
+            <div id="error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
 
             <form id="profile-form" style="display: none;" class="profile-form-layout">
                 <div class="profile-columns">
@@ -186,7 +186,8 @@
                     <button type="button" class="ghost-btn cancel-btn" id="cancel-btn">キャンセル</button>
                 </div>
 
-                <div id="save-success" class="success-message" style="display: none;"></div>
+                                <div id="save-success" class="success-message" role="status" aria-live="polite" style="display: none;"></div>
+
             </form>
         </main>
     </div>

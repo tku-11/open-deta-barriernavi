@@ -80,8 +80,10 @@ class DetailPage {
     }
   }
 
-  private async load(): Promise<void> {
+    private async load(): Promise<void> {
+    this.updateStatus('駅の詳細情報を読み込んでいます。');
     const params = new URLSearchParams(window.location.search);
+
     const stationId = Number(params.get('stationId'));
     if (!stationId) {
       this.renderError('駅IDが指定されていません。');
@@ -104,6 +106,11 @@ class DetailPage {
   private async fetchApi<T>(endpoint: string): Promise<ApiResponse<T>> {
     const result = await getApi<T>(endpoint);
     return result.body;
+  }
+
+  private updateStatus(message: string): void {
+    const status = document.getElementById('detail-status');
+    if (status) status.textContent = message;
   }
 
   private renderDetail(detail: DetailStation): void {
@@ -140,16 +147,22 @@ class DetailPage {
         <tr class="${metric.met ? 'metric-met' : ''}">
           <td>${this.escape(metric.label)}</td>
           <td class="metric-value">${this.escape(valueDisplay)}</td>
-          <td class="metric-required">${this.escape(requiredDisplay)}</td>
+                    <td class="metric-required">${this.escape(requiredDisplay)}</td>
+          <td class="metric-status">${metric.met ? '達成' : '未達'}</td>
         </tr>
+
       `;
     }).join('');
-    this.tableBodyEl.innerHTML = rows;
+        this.tableBodyEl.innerHTML = rows;
+    this.updateStatus(`${detail.station_name}の詳細情報を表示しました。${detail.metrics.length}項目を確認できます。`);
+
   }
 
   private renderError(message: string): void {
     if (this.tableBodyEl) {
-      this.tableBodyEl.innerHTML = `<tr><td colspan="3" class="error">${this.escape(message)}</td></tr>`;
+            this.tableBodyEl.innerHTML = `<tr><td colspan="4" class="error" role="alert">${this.escape(message)}</td></tr>`;
+      this.updateStatus(`駅詳細の取得に失敗しました。${message}`);
+
     }
   }
 
