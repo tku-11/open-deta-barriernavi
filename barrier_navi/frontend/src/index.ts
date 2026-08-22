@@ -61,6 +61,7 @@ class StationApp {
   private currentMetrics: MetricDefinition[];
 
   private favoriteStationIds: number[] = []; // お気に入り駅IDのリスト
+  private profileFilterKeys = new Set<string>();
 
   constructor() {
     const mode = document.body.dataset.mode;
@@ -113,6 +114,8 @@ class StationApp {
       label.textContent = metric.label;
 
       checkbox.addEventListener('change', () => {
+        // 利用者が変更した条件は、以後プロフィール由来としては扱わない。
+        this.profileFilterKeys.delete(metric.key);
         this.currentPage = 1;
         this.loadStations();
       });
@@ -138,9 +141,18 @@ class StationApp {
     const filterButton = document.getElementById('apply-filter-btn') as HTMLButtonElement | null;
     const resetButton = document.getElementById('reset-filter-btn') as HTMLButtonElement | null;
 
-    const lineSelect = document.getElementById('line-select') as HTMLSelectElement | null;
+        const lineSelect = document.getElementById('line-select') as HTMLSelectElement | null;
+    const filterToggle = document.getElementById('filter-toggle') as HTMLButtonElement | null;
+    const filterPanel = document.getElementById('filter-panel');
+
+    filterToggle?.addEventListener('click', () => {
+      const isOpen = filterPanel?.classList.toggle('is-open') ?? false;
+      filterToggle.setAttribute('aria-expanded', String(isOpen));
+      filterToggle.textContent = isOpen ? '絞り込みを閉じる' : '絞り込みを開く';
+    });
 
     searchButton?.addEventListener('click', () => this.applySearch());
+
     searchInput?.addEventListener('keypress', (event) => {
       if (event.key === 'Enter') this.applySearch();
     });
@@ -300,8 +312,11 @@ class StationApp {
             }
           });
 
-          // 絞り込み条件として適用
+                    // 絞り込み条件として適用し、プロフィール由来を表示できるよう保持する
           this.selectedFilters = availableMetricKeys;
+          this.profileFilterKeys = new Set(availableMetricKeys);
+          
+
           
           // アクティブフィルターを表示
           this.updateActiveFilters();
@@ -385,12 +400,10 @@ class StationApp {
     }
     this.announceResults('駅情報を読み込んでいます。');
 
-    // チェックボックスからフィルターを収集（既に設定されているフィルターとマージ）
-    const collectedFilters = this.collectFilters();
-    // 既存のフィルターとマージ（重複を除去）
-    const allFilters = [...new Set([...this.selectedFilters, ...collectedFilters])];
-    this.selectedFilters = allFilters;
-    
+    // 検索条件は画面上のチェック状態を唯一の根拠にする。
+    // これにより、チップやプロフィール由来条件を外した場合も現在の検索へ直ちに反映される。
+    this.selectedFilters = this.collectFilters();
+
     const params = new URLSearchParams({
       limit: this.pageSize.toString(),
       offset: ((this.currentPage - 1) * this.pageSize).toString(),
@@ -428,6 +441,7 @@ class StationApp {
       this.renderStationCards(response.data);
       this.updatePagination();
       this.updateActiveFilters();
+      this.updateResultSummary(response.data.length);
 
       if (response.data.length === 0) {
         this.announceResults('条件に一致する駅は見つかりませんでした。');
@@ -448,22 +462,94 @@ class StationApp {
 
   }
 
+    private updateResultSummary(displayedCount: number): void {
+    const text = document.getElementById('result-summary-text');
+    const badges = document.getElementById('result-summary-badges');
+    const filterToggle = document.getElementById('filter-toggle');
+    if (!text || !badges) return;
+
+    const selectedLine = (document.getElementById('line-select') as HTMLSelectElement | null)?.value || '';
+    const activeConditionCount = [
+      this.selectedPrefecture,
+      selectedLine,
+      this.keyword,
+      this.sortOrder !== 'none' ? this.sortOrder : '',
+      ...this.selectedFilters,
+    ].filter(Boolean).length;
+    const sortLabel = this.sortOrder === 'score-desc'
+      ? 'スコアの高い順'
+      : this.sortOrder === 'score-asc'
+        ? 'スコアの低い順'
+        : '駅名順';
+
+    if (this.totalCount === 0) {
+      text.textContent = '条件に一致する駅は見つかりませんでした。条件を緩めるか、リセットして再検索してください。';
+    } else {
+      const first = (this.currentPage - 1) * this.pageSize + 1;
+      const last = first + displayedCount - 1;
+      text.textContent = `${this.totalCount}駅中 ${first}〜${last}駅を表示しています。${sortLabel}です。`;
+    }
+
+    badges.replaceChildren();
+    const addBadge = (label: string, className: string) => {
+      const badge = document.createElement('span');
+      badge.className = `result-summary-badge ${className}`;
+      badge.textContent = label;
+      badges.appendChild(badge);
+    };
+    if (activeConditionCount > 0) addBadge(`適用中の条件 ${activeConditionCount}件`, 'result-summary-badge--condition');
+    const profileCount = this.selectedFilters.filter((key) => this.profileFilterKeys.has(key)).length;
+    if (profileCount > 0) addBadge(`プロフィール条件 ${profileCount}件を適用中`, 'result-summary-badge--profile');
+    if (this.favoriteStationIds.length > 0) addBadge(`お気に入り ${this.favoriteStationIds.length}駅を優先表示`, 'result-summary-badge--favorite');
+    if (filterToggle) filterToggle.textContent = activeConditionCount > 0 ? `絞り込みを開く（${activeConditionCount}件）` : '絞り込みを開く';
+  }
+
   private updateActiveFilters(): void {
+
     const container = document.getElementById('active-filters');
     const group = document.getElementById('active-filters-group');
     if (!container || !group) return;
 
     container.innerHTML = '';
-    const hasFilters = this.selectedPrefecture || this.selectedFilters.length > 0 || this.keyword;
+    const selectedLine = (document.getElementById('line-select') as HTMLSelectElement | null)?.value || '';
+    const hasFilters = this.selectedPrefecture || this.selectedFilters.length > 0 || this.keyword || selectedLine || this.sortOrder !== 'none';
 
     if (!hasFilters) {
       group.style.display = 'none';
       return;
     }
 
-    group.style.display = 'block';
+        group.style.display = 'block';
+
+    const appliedProfileFilters = this.selectedFilters.filter((key) => this.profileFilterKeys.has(key));
+    if (appliedProfileFilters.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'filter-section profile-filter-notice';
+      const text = document.createElement('p');
+      text.textContent = `プロフィールの優先設備 ${appliedProfileFilters.length}件を、この検索条件に適用しています。`;
+      const link = document.createElement('a');
+      link.href = '/profile';
+      link.textContent = 'プロフィールを確認する';
+      const clearButton = document.createElement('button');
+      clearButton.type = 'button';
+      clearButton.className = 'ghost-btn';
+      clearButton.textContent = 'この検索から外す';
+      clearButton.setAttribute('aria-label', 'プロフィール由来の条件をこの検索から外す。保存済みプロフィールは変更しません');
+      clearButton.addEventListener('click', () => {
+        appliedProfileFilters.forEach((key) => {
+          const checkbox = document.querySelector(`#filter-${key}`) as HTMLInputElement | null;
+          if (checkbox) checkbox.checked = false;
+          this.profileFilterKeys.delete(key);
+        });
+        this.currentPage = 1;
+        this.loadStations();
+      });
+      section.append(text, link, clearButton);
+      container.appendChild(section);
+    }
 
     // 都道府県セクション
+
     if (this.selectedPrefecture) {
       const section = document.createElement('div');
       section.className = 'filter-section';
@@ -496,10 +582,11 @@ class StationApp {
       const section = document.createElement('div');
       section.className = 'filter-section';
       section.innerHTML = `
-        <div class="filter-section-header">
-          <span class="filter-icon">🔧</span>
-          <span class="filter-section-title">設備条件 <span class="filter-count">(${this.selectedFilters.length}件)</span></span>
+                <div class="filter-section-header">
+          <span class="filter-icon" aria-hidden="true">🔧</span>
+          <span class="filter-section-title">設備条件 <span class="filter-count">(${this.selectedFilters.length}件、すべて満たす駅を表示)</span></span>
         </div>
+
         <div class="filter-chips">
         </div>
       `;
@@ -510,9 +597,11 @@ class StationApp {
         if (!metric) return;
 
         const chip = document.createElement('div');
-        chip.className = 'active-filter-chip filter-chip-equipment';
+                chip.className = 'active-filter-chip filter-chip-equipment';
+        const isProfileFilter = this.profileFilterKeys.has(filterKey);
         chip.innerHTML = `
-          <span>${this.escapeHtml(metric.label)}</span>
+          <span>${this.escapeHtml(metric.label)}${isProfileFilter ? '（プロフィールから適用）' : ''}</span>
+
           <button class="filter-remove-btn" data-type="filter" data-key="${filterKey}" aria-label="削除">×</button>
         `;
         chip.querySelector('.filter-remove-btn')?.addEventListener('click', () => {
@@ -562,7 +651,17 @@ class StationApp {
     if (!container) return;
 
     if (stations.length === 0) {
-      container.innerHTML = '<p class="no-data">条件に一致する駅が見つかりませんでした。</p>';
+      const empty = document.createElement('div');
+      empty.className = 'no-data no-data--actionable';
+      const message = document.createElement('p');
+      message.textContent = '条件に一致する駅が見つかりませんでした。設備条件、地域、検索語を見直してください。';
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'ghost-btn';
+      reset.textContent = '条件をリセットして再検索';
+      reset.addEventListener('click', () => this.resetFilters());
+      empty.append(message, reset);
+      container.replaceChildren(empty);
       return;
     }
 
@@ -578,13 +677,17 @@ class StationApp {
         card.classList.add('station-card--favorite');
       }
       card.innerHTML = `
-        <div class="station-card__header">
+                <div class="station-card__header">
           <span class="station-card__name">
-            ${isFavorite ? '<span class="favorite-icon">★</span>' : ''}
             ${this.escapeHtml(station.station_name)}
           </span>
           <span class="station-card__score">${station.score.label}</span>
         </div>
+        <div class="station-card__badges">
+          ${isFavorite ? '<span class="station-card__badge station-card__badge--favorite">お気に入り</span>' : ''}
+          ${this.selectedFilters.some((key) => this.profileFilterKeys.has(key)) ? '<span class="station-card__badge station-card__badge--profile">優先条件に一致</span>' : ''}
+        </div>
+
         <div class="station-card__meta">
           <span>${this.escapeHtml(station.prefecture)} ${this.escapeHtml(station.city || '')}</span>
           <span>${this.escapeHtml(station.operator)}</span>
@@ -593,7 +696,8 @@ class StationApp {
           <div class="station-card__progress-bar" aria-hidden="true" style="width:${station.score.percentage}%"></div>
         </div>
 
-        <div class="station-card__footer">詳細を見る</div>
+                <div class="station-card__footer">達成 ${station.score.met_items} / ${station.score.total_items} 項目（${station.score.percentage}%）・詳細を見る</div>
+
       `;
             container.appendChild(card);
 

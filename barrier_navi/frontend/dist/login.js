@@ -5,6 +5,7 @@ import { isClientAuthenticated, setAuthenticatedUser, startGuestSession } from '
  */
 class LoginPage {
     constructor() {
+        this.modalOpener = null;
         this.init();
     }
     init() {
@@ -29,13 +30,6 @@ class LoginPage {
         // ゲストで参加ボタン
         const guestBtn = document.getElementById('guest-btn');
         guestBtn?.addEventListener('click', () => this.handleGuestLogin());
-        // パスワードを忘れた場合のリンク
-        const forgotPasswordLink = document.getElementById('forgot-password-link');
-        forgotPasswordLink?.addEventListener('click', (e) => {
-            e.preventDefault();
-            const errorMessage = document.getElementById('error-message');
-            this.showError(errorMessage, 'パスワードリセット機能は現在ご利用いただけません。');
-        });
         // 新規作成モーダル
         const signupModal = document.getElementById('signup-modal');
         const closeSignupModal = document.getElementById('close-signup-modal');
@@ -48,18 +42,7 @@ class LoginPage {
         // 新規作成フォーム
         const signupForm = document.getElementById('signup-form');
         signupForm?.addEventListener('submit', (e) => this.handleSignup(e));
-        // パスワードリセットモーダル
-        const resetModal = document.getElementById('reset-password-modal');
-        const closeResetModal = document.getElementById('close-reset-modal');
-        closeResetModal?.addEventListener('click', () => this.hideResetPasswordModal());
-        resetModal?.addEventListener('click', (e) => {
-            if (e.target === resetModal) {
-                this.hideResetPasswordModal();
-            }
-        });
-        // パスワードリセットフォーム
-        const resetForm = document.getElementById('reset-password-form');
-        resetForm?.addEventListener('submit', (e) => this.handlePasswordReset(e));
+        document.addEventListener('keydown', (event) => this.handleModalKeydown(event));
     }
     async handleLogin(e) {
         e.preventDefault();
@@ -103,20 +86,56 @@ class LoginPage {
     }
     showSignupModal() {
         const modal = document.getElementById('signup-modal');
-        if (modal) {
-            modal.style.display = 'flex';
+        if (!modal)
+            return;
+        this.modalOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        modal.style.display = 'flex';
+        const errorMsg = document.getElementById('signup-error-message');
+        if (errorMsg) {
+            errorMsg.textContent = '';
+            errorMsg.style.display = 'none';
         }
+        window.setTimeout(() => document.getElementById('signup-username')?.focus(), 0);
     }
     hideSignupModal() {
         const modal = document.getElementById('signup-modal');
-        if (modal) {
-            modal.style.display = 'none';
-            const form = document.getElementById('signup-form');
-            form?.reset();
-            const errorMsg = document.getElementById('signup-error-message');
-            if (errorMsg) {
-                errorMsg.style.display = 'none';
-            }
+        if (!modal)
+            return;
+        modal.style.display = 'none';
+        const form = document.getElementById('signup-form');
+        form?.reset();
+        const errorMsg = document.getElementById('signup-error-message');
+        if (errorMsg) {
+            errorMsg.textContent = '';
+            errorMsg.style.display = 'none';
+        }
+        this.modalOpener?.focus();
+        this.modalOpener = null;
+    }
+    handleModalKeydown(event) {
+        const modal = document.getElementById('signup-modal');
+        if (!modal || modal.style.display === 'none')
+            return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            this.hideSignupModal();
+            return;
+        }
+        if (event.key !== 'Tab')
+            return;
+        const dialog = modal.querySelector('[role="dialog"]');
+        const focusable = dialog?.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href]');
+        if (!focusable || focusable.length === 0)
+            return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        }
+        else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
         }
     }
     async handleSignup(e) {
@@ -148,13 +167,16 @@ class LoginPage {
         try {
             const response = await this.createUser(username, email, password);
             if (response.success) {
-                // アカウント作成成功
-                alert('アカウントが作成されました。ログインしてください。');
                 this.hideSignupModal();
-                // ログインフォームにユーザー名を設定
+                // ログインフォームにユーザー名を設定し、作成完了を画面上で明示する。
                 const loginUsername = document.getElementById('username');
-                if (loginUsername) {
+                if (loginUsername)
                     loginUsername.value = username;
+                const loginStatus = document.getElementById('login-status');
+                if (loginStatus) {
+                    loginStatus.textContent = 'アカウントを作成しました。パスワードを入力してログインしてください。';
+                    loginStatus.style.display = 'block';
+                    loginStatus.focus();
                 }
             }
             else {
@@ -171,70 +193,6 @@ class LoginPage {
         return result.body.success
             ? { success: true }
             : { success: false, error: result.body.error || 'アカウント作成に失敗しました' };
-    }
-    showResetPasswordModal() {
-        const modal = document.getElementById('reset-password-modal');
-        if (modal) {
-            modal.style.display = 'flex';
-        }
-    }
-    hideResetPasswordModal() {
-        const modal = document.getElementById('reset-password-modal');
-        if (modal) {
-            modal.style.display = 'none';
-            const form = document.getElementById('reset-password-form');
-            form?.reset();
-            const errorMsg = document.getElementById('reset-error-message');
-            const successMsg = document.getElementById('reset-success-message');
-            if (errorMsg) {
-                errorMsg.style.display = 'none';
-            }
-            if (successMsg) {
-                successMsg.style.display = 'none';
-            }
-        }
-    }
-    async handlePasswordReset(e) {
-        e.preventDefault();
-        const form = e.target;
-        const formData = new FormData(form);
-        const email = formData.get('email');
-        const errorMessage = document.getElementById('reset-error-message');
-        const successMessage = document.getElementById('reset-success-message');
-        if (errorMessage) {
-            errorMessage.style.display = 'none';
-            errorMessage.textContent = '';
-        }
-        if (successMessage) {
-            successMessage.style.display = 'none';
-            successMessage.textContent = '';
-        }
-        try {
-            const response = await this.resetPassword(email);
-            if (response.success) {
-                if (successMessage) {
-                    successMessage.textContent = 'パスワードリセット用のリンクをメールアドレスに送信しました。';
-                    successMessage.style.display = 'block';
-                }
-                // 3秒後にモーダルを閉じる
-                setTimeout(() => {
-                    this.hideResetPasswordModal();
-                }, 3000);
-            }
-            else {
-                this.showError(errorMessage, response.error || 'パスワードリセットに失敗しました');
-            }
-        }
-        catch (error) {
-            console.error('Password reset error:', error);
-            this.showError(errorMessage, 'パスワードリセット処理中にエラーが発生しました');
-        }
-    }
-    async resetPassword(email) {
-        const result = await postApi('/auth/reset-password', { email });
-        return result.body.success
-            ? { success: true }
-            : { success: false, error: result.body.error || 'パスワードリセットに失敗しました' };
     }
     showError(element, message) {
         if (element) {

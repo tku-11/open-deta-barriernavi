@@ -1,16 +1,23 @@
 import { getApi } from './api.js';
+import { metricKeysForPreferredFeature } from './metrics.js';
 class DetailPage {
     constructor() {
         this.titleEl = null;
         this.scoreEl = null;
         this.metaEl = null;
         this.tableBodyEl = null;
+        this.decisionSummaryEl = null;
+        this.decisionSummaryTextEl = null;
+        this.decisionSummaryListEl = null;
         // ★追加: 現在のモード
         this.currentMode = 'body';
         this.titleEl = document.getElementById('detail-title');
         this.scoreEl = document.getElementById('detail-score');
         this.metaEl = document.getElementById('detail-meta');
         this.tableBodyEl = document.getElementById('detail-table-body');
+        this.decisionSummaryEl = document.getElementById('decision-summary');
+        this.decisionSummaryTextEl = document.getElementById('decision-summary-text');
+        this.decisionSummaryListEl = document.getElementById('decision-summary-list');
         // ★追加: モード判定
         const params = new URLSearchParams(window.location.search);
         const urlMode = params.get('mode');
@@ -55,6 +62,7 @@ class DetailPage {
         const response = await this.fetchApi(`${apiPath}/${stationId}`);
         if (response.success && response.data) {
             this.renderDetail(response.data);
+            await this.renderDecisionSummary(response.data);
         }
         else {
             this.renderError(response.error || 'データを取得できませんでした。');
@@ -101,16 +109,63 @@ class DetailPage {
             }
             return `
         <tr class="${metric.met ? 'metric-met' : ''}">
-          <td>${this.escape(metric.label)}</td>
-          <td class="metric-value">${this.escape(valueDisplay)}</td>
-                    <td class="metric-required">${this.escape(requiredDisplay)}</td>
-          <td class="metric-status">${metric.met ? '達成' : '未達'}</td>
+                    <td data-label="項目">${this.escape(metric.label)}</td>
+          <td class="metric-value" data-label="設置の有無と数">${this.escape(valueDisplay)}</td>
+          <td class="metric-required" data-label="基準値">${this.escape(requiredDisplay)}</td>
+          <td class="metric-status" data-label="判定">${metric.met ? '達成（基準を満たす）' : '未達（基準を満たしていない）'}</td>
+
         </tr>
 
       `;
         }).join('');
         this.tableBodyEl.innerHTML = rows;
         this.updateStatus(`${detail.station_name}の詳細情報を表示しました。${detail.metrics.length}項目を確認できます。`);
+    }
+    async renderDecisionSummary(detail) {
+        if (!this.decisionSummaryEl || !this.decisionSummaryTextEl || !this.decisionSummaryListEl)
+            return;
+        const metMetrics = detail.metrics.filter((metric) => metric.met);
+        const unmetMetrics = detail.metrics.filter((metric) => !metric.met);
+        this.decisionSummaryTextEl.textContent = `${detail.score.label}。${detail.score.met_items} / ${detail.score.total_items}項目を達成し、達成率は${detail.score.percentage}%です。`;
+        this.decisionSummaryListEl.replaceChildren();
+        const addItem = (message, className) => {
+            const item = document.createElement('li');
+            if (className)
+                item.className = className;
+            item.textContent = message;
+            this.decisionSummaryListEl?.appendChild(item);
+        };
+        addItem(`達成: ${metMetrics.length}項目`);
+        if (unmetMetrics.length > 0) {
+            addItem(`未達: ${unmetMetrics.length}項目（${unmetMetrics.slice(0, 3).map((metric) => metric.label).join('、')}）`, 'decision-summary-list__unmet');
+        }
+        else {
+            addItem('未達項目はありません。');
+        }
+        try {
+            const profile = await this.fetchApi('/auth/profile');
+            const features = profile.success && profile.data && Array.isArray(profile.data.preferred_features)
+                ? profile.data.preferred_features
+                : [];
+            const preferredMetricKeys = [...new Set(features.flatMap((feature) => metricKeysForPreferredFeature(feature, this.currentMode)))];
+            if (features.length > 0 && preferredMetricKeys.length > 0) {
+                const preferredMetrics = detail.metrics.filter((metric) => preferredMetricKeys.includes(metric.key));
+                const preferredMetCount = preferredMetrics.filter((metric) => metric.met).length;
+                addItem(`プロフィールの優先設備に対応する評価項目: ${preferredMetCount} / ${preferredMetrics.length}項目を達成`);
+                const preferredUnmet = preferredMetrics.filter((metric) => !metric.met);
+                if (preferredUnmet.length > 0) {
+                    addItem(`優先設備で未達: ${preferredUnmet.map((metric) => metric.label).join('、')}`, 'decision-summary-list__unmet');
+                }
+            }
+            else if (features.length > 0) {
+                addItem('プロフィールの優先設備は、このカテゴリの評価項目には対応していません。');
+            }
+        }
+        catch (error) {
+            // ログインしていない場合やプロフィール取得に失敗した場合も詳細比較は利用可能にする。
+            console.warn('Failed to load profile preferences for detail summary:', error);
+        }
+        this.decisionSummaryEl.hidden = false;
     }
     renderError(message) {
         if (this.tableBodyEl) {

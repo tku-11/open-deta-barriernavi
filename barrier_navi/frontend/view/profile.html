@@ -81,18 +81,28 @@
                             <h2>お気に入りの駅</h2>
                             <p class="section-description">よく利用する駅を登録してください</p>
                             
-                            <div class="favorite-stations-container">
-                                <div class="station-search">
+                                <div class="favorite-stations-container">
+                                    <div class="station-search">
+                                    <label class="visually-hidden" for="station-search-input">お気に入りに追加する駅を検索</label>
                                     <input 
                                         type="text" 
                                         id="station-search-input" 
-                                        placeholder="駅名で検索..."
+                                        placeholder="駅名を2文字以上で検索"
                                         autocomplete="off"
+                                        role="combobox"
+                                        aria-autocomplete="list"
+                                        aria-expanded="false"
+                                        aria-controls="station-search-results"
+                                        aria-describedby="station-search-help station-search-status"
                                     />
-                                    <div id="station-search-results" class="station-search-results" style="display: none;"></div>
+                                    <p id="station-search-help" class="visually-hidden">駅名を2文字以上入力すると候補を表示します。上下矢印キーで候補を選び、Enterキーでお気に入りへ追加します。</p>
+                                    <p id="station-search-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
+                                    <div id="station-search-results" class="station-search-results" role="listbox" aria-label="駅の検索候補" style="display: none;"></div>
                                 </div>
-                                
+
+                                                                <p id="favorite-stations-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
                                 <div id="favorite-stations-list" class="favorite-stations-list">
+
                                     <p class="empty-message">お気に入りの駅が登録されていません</p>
                                 </div>
                             </div>
@@ -186,7 +196,7 @@
                     <button type="button" class="ghost-btn cancel-btn" id="cancel-btn">キャンセル</button>
                 </div>
 
-                                <div id="save-success" class="success-message" role="status" aria-live="polite" style="display: none;"></div>
+                                <div id="save-success" class="success-message" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" style="display: none;"></div>
 
             </form>
         </main>

@@ -35,7 +35,13 @@
                     </select>
                 </div>
 
-                                <p id="results-status" class="status-message" role="status" aria-live="polite" aria-atomic="true">条件を指定して駅を検索できます。</p>
+                                <section id="result-summary" class="result-summary" aria-labelledby="result-summary-heading">
+                    <h2 id="result-summary-heading">検索結果の要約</h2>
+                    <p id="result-summary-text">条件を指定して駅を検索できます。</p>
+                    <div id="result-summary-badges" class="result-summary-badges"></div>
+                </section>
+                <button id="filter-toggle" class="mobile-filter-toggle ghost-btn" type="button" aria-expanded="false" aria-controls="filter-panel">絞り込みを開く</button>
+                <p id="results-status" class="status-message" role="status" aria-live="polite" aria-atomic="true">条件を指定して駅を検索できます。</p>
                 <div id="loading" class="loading" role="status" aria-live="polite" aria-busy="false" style="display: none;">
                     <p>駅情報を読み込み中です。</p>
                 </div>
@@ -55,7 +61,7 @@
 
             </section>
 
-                        <aside class="filter-panel" aria-labelledby="filter-heading">
+                        <aside id="filter-panel" class="filter-panel" aria-labelledby="filter-heading">
 
                 <h2 id="filter-heading">絞り込み</h2>
 

@@ -27,6 +27,8 @@ class ProfilePage {
   
   private favoriteStations: Array<{ id: number; name: string }> = [];
   private stationSearchTimeout: number | null = null;
+  private stationSearchResults: Station[] = [];
+  private activeStationOptionIndex = -1;
 
   constructor() {
     this.init();
@@ -70,9 +72,12 @@ class ProfilePage {
       if (keyword.length >= 2) {
         this.debounceSearch(keyword);
       } else {
+        this.stationSearchResults = [];
         this.hideStationSearchResults();
+        this.announceStationSearch('駅名を2文字以上入力してください。');
       }
     });
+    stationSearchInput?.addEventListener('keydown', (e) => this.handleStationSearchKeydown(e));
 
     // 駅検索結果外をクリックしたら閉じる
     document.addEventListener('click', (e) => {
@@ -104,16 +109,20 @@ class ProfilePage {
         // インデックスが有効な場合は、インデックスで削除（最も確実）
         if (!isNaN(stationIndex) && stationIndex >= 0 && stationIndex < this.favoriteStations.length) {
           console.log('Removing station by index:', stationIndex);
-          this.favoriteStations.splice(stationIndex, 1);
+                    this.favoriteStations.splice(stationIndex, 1);
           this.renderFavoriteStations();
+          this.announceFavoriteStations('お気に入りの駅を削除しました。保存すると反映されます。');
           return;
+
         }
         
         // 駅IDが有効な場合は、IDで削除
         if (!isNaN(stationId) && stationId > 0) {
           console.log('Removing station by ID:', stationId);
-          this.removeFavoriteStation(stationId);
+                    this.removeFavoriteStation(stationId);
+          this.announceFavoriteStations('お気に入りの駅を削除しました。保存すると反映されます。');
           return;
+
         }
         
         // 駅名で削除を試みる（フォールバック）
@@ -143,56 +152,132 @@ class ProfilePage {
   private async searchStations(keyword: string): Promise<void> {
     try {
       const { body: data } = await getApi<Station[]>(`/stations/search?keyword=${encodeURIComponent(keyword)}&limit=10`);
-
       if (data.success && data.data) {
         this.showStationSearchResults(data.data);
+      } else {
+        this.stationSearchResults = [];
+        this.showStationSearchResults([]);
       }
     } catch (error) {
       console.error('Station search error:', error);
+      this.stationSearchResults = [];
+      this.hideStationSearchResults();
+      this.announceStationSearch('駅候補の検索に失敗しました。時間をおいて再試行してください。');
     }
   }
 
   private showStationSearchResults(stations: Station[]): void {
     const resultsContainer = document.getElementById('station-search-results');
-    if (!resultsContainer) return;
+    const input = document.getElementById('station-search-input') as HTMLInputElement | null;
+    if (!resultsContainer || !input) return;
 
-    if (stations.length === 0) {
-      resultsContainer.innerHTML = '<div class="search-result-item">駅が見つかりませんでした</div>';
+    this.stationSearchResults = stations.filter((station) => !this.favoriteStations.some((fav) => fav.id === station.id));
+    this.activeStationOptionIndex = -1;
+    resultsContainer.replaceChildren();
+
+    if (this.stationSearchResults.length === 0) {
+      const option = document.createElement('div');
+      option.className = 'search-result-item search-result-item--empty';
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-disabled', 'true');
+      option.textContent = '追加できる駅が見つかりませんでした';
+      resultsContainer.appendChild(option);
       resultsContainer.style.display = 'block';
+      input.setAttribute('aria-expanded', 'true');
+      input.removeAttribute('aria-activedescendant');
+      this.announceStationSearch('追加できる駅の候補は見つかりませんでした。');
       return;
     }
 
-    resultsContainer.innerHTML = stations
-      .filter(station => !this.favoriteStations.some(fav => fav.id === station.id))
-      .map(station => `
-        <div class="search-result-item" data-station-id="${station.id}" data-station-name="${this.escapeHtml(station.station_name)}">
-          <span class="station-name">${this.escapeHtml(station.station_name)}</span>
-          ${station.prefecture ? `<span class="station-location">${this.escapeHtml(station.prefecture)}${station.city ? ` ${this.escapeHtml(station.city)}` : ''}</span>` : ''}
-        </div>
-      `).join('');
-
-    // クリックイベントを追加
-    resultsContainer.querySelectorAll('.search-result-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const stationId = parseInt(item.getAttribute('data-station-id') || '0');
-        const stationName = item.getAttribute('data-station-name') || '';
-        if (stationId && stationName) {
-          this.addFavoriteStation(stationId, stationName);
-          const input = document.getElementById('station-search-input') as HTMLInputElement;
-          if (input) input.value = '';
-          this.hideStationSearchResults();
-        }
-      });
+    this.stationSearchResults.forEach((station, index) => {
+      const option = document.createElement('div');
+      option.id = `station-search-option-${index}`;
+      option.className = 'search-result-item';
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', 'false');
+      const name = document.createElement('span');
+      name.className = 'station-name';
+      name.textContent = station.station_name;
+      option.appendChild(name);
+      if (station.prefecture) {
+        const location = document.createElement('span');
+        location.className = 'station-location';
+        location.textContent = `${station.prefecture}${station.city ? ` ${station.city}` : ''}`;
+        option.appendChild(location);
+      }
+      option.addEventListener('mousedown', (event) => event.preventDefault());
+      option.addEventListener('click', () => this.selectStationSearchResult(index));
+      resultsContainer.appendChild(option);
     });
 
     resultsContainer.style.display = 'block';
+    input.setAttribute('aria-expanded', 'true');
+    input.removeAttribute('aria-activedescendant');
+    this.announceStationSearch(`${this.stationSearchResults.length}件の駅候補を表示しています。上下矢印キーで選び、Enterキーで追加できます。`);
+  }
+
+  private handleStationSearchKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      this.hideStationSearchResults();
+      return;
+    }
+    if (this.stationSearchResults.length === 0) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.setActiveStationOption((this.activeStationOptionIndex + 1) % this.stationSearchResults.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.setActiveStationOption((this.activeStationOptionIndex - 1 + this.stationSearchResults.length) % this.stationSearchResults.length);
+    } else if (event.key === 'Enter' && this.activeStationOptionIndex >= 0) {
+      event.preventDefault();
+      this.selectStationSearchResult(this.activeStationOptionIndex);
+    }
+  }
+
+  private setActiveStationOption(index: number): void {
+    const input = document.getElementById('station-search-input') as HTMLInputElement | null;
+    const previous = document.getElementById(`station-search-option-${this.activeStationOptionIndex}`);
+    previous?.classList.remove('search-result-item--active');
+    previous?.setAttribute('aria-selected', 'false');
+    this.activeStationOptionIndex = index;
+    const current = document.getElementById(`station-search-option-${index}`);
+    current?.classList.add('search-result-item--active');
+    current?.setAttribute('aria-selected', 'true');
+    current?.scrollIntoView({ block: 'nearest' });
+    input?.setAttribute('aria-activedescendant', `station-search-option-${index}`);
+  }
+
+  private selectStationSearchResult(index: number): void {
+    const station = this.stationSearchResults[index];
+    if (!station) return;
+    this.addFavoriteStation(station.id, station.station_name);
+    const input = document.getElementById('station-search-input') as HTMLInputElement | null;
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    this.hideStationSearchResults();
+    this.announceFavoriteStations(`${station.station_name}をお気に入りへ追加しました。保存すると反映されます。`);
   }
 
   private hideStationSearchResults(): void {
     const resultsContainer = document.getElementById('station-search-results');
-    if (resultsContainer) {
-      resultsContainer.style.display = 'none';
-    }
+    const input = document.getElementById('station-search-input') as HTMLInputElement | null;
+    if (resultsContainer) resultsContainer.style.display = 'none';
+    input?.setAttribute('aria-expanded', 'false');
+    input?.removeAttribute('aria-activedescendant');
+    this.activeStationOptionIndex = -1;
+  }
+
+  private announceStationSearch(message: string): void {
+    const status = document.getElementById('station-search-status');
+    if (status) status.textContent = message;
+  }
+
+  private announceFavoriteStations(message: string): void {
+    const status = document.getElementById('favorite-stations-status');
+    if (status) status.textContent = message;
   }
 
   private addFavoriteStation(stationId: number, stationName: string): void {
@@ -464,16 +549,13 @@ class ProfilePage {
 
         }
         
-        // 保存成功メッセージを表示
+                // 保存成功を画面上に残し、利用者が確認してから次の操作を選べるようにする。
         if (successEl) {
-          successEl.textContent = 'プロフィールを保存しました';
+          successEl.textContent = 'プロフィールを保存しました。変更は次回の駅検索に反映されます。';
           successEl.style.display = 'block';
+          successEl.focus();
         }
-        
-        // 1秒後にhome画面にリダイレクト
-        setTimeout(() => {
-          window.location.href = '/home';
-        }, 1000);
+
       } else {
         this.showError(result.error || 'プロフィールの保存に失敗しました');
       }

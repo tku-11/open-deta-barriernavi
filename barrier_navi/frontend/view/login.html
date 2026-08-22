@@ -39,7 +39,8 @@
                 </div>
 
                 <div class="form-options">
-                    <a href="#" id="forgot-password-link" class="forgot-password">パスワードを忘れた場合</a>
+                                        <p class="unavailable-feature" role="note">パスワードリセットは現在ご利用いただけません。管理者へお問い合わせください。</p>
+
                 </div>
 
                 <button type="submit" class="primary-btn login-btn">ログイン</button>
@@ -55,16 +56,18 @@
             </div>
 
                         <div id="error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
+            <div id="login-status" class="success-message" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" style="display: none;"></div>
 
         </div>
     </div>
 
     <!-- 新規作成モーダル -->
-    <div id="signup-modal" class="modal" style="display: none;">
-        <div class="modal-content">
+        <div id="signup-modal" class="modal" style="display: none;">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="signup-modal-title" tabindex="-1">
             <div class="modal-header">
-                <h2>新規アカウント作成</h2>
-                <button class="modal-close" id="close-signup-modal">&times;</button>
+                <h2 id="signup-modal-title">新規アカウント作成</h2>
+                <button type="button" class="modal-close" id="close-signup-modal" aria-label="新規アカウント作成を閉じる">&times;</button>
+
             </div>
             <form id="signup-form" class="login-form">
                 <div class="form-group">
@@ -114,37 +117,11 @@
                 <button type="submit" class="primary-btn">アカウントを作成</button>
             </form>
                         <div id="signup-error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
+            <div id="signup-success-message" class="success-message" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" style="display: none;"></div>
 
         </div>
     </div>
 
-    <!-- パスワードリセットモーダル -->
-    <div id="reset-password-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>パスワードをリセット</h2>
-                <button class="modal-close" id="close-reset-modal">&times;</button>
-            </div>
-            <form id="reset-password-form" class="login-form">
-                <div class="form-group">
-                    <label for="reset-email">メールアドレス</label>
-                    <input 
-                        type="email" 
-                        id="reset-email" 
-                        name="email" 
-                        placeholder="登録済みのメールアドレスを入力"
-                        required
-                        autocomplete="email"
-                    />
-                </div>
-                <p class="reset-info">登録済みのメールアドレスにパスワードリセット用のリンクを送信します。</p>
-                <button type="submit" class="primary-btn">リセットリンクを送信</button>
-            </form>
-                        <div id="reset-error-message" class="error-message" role="alert" aria-live="assertive" style="display: none;"></div>
-            <div id="reset-success-message" class="success-message" role="status" aria-live="polite" style="display: none;"></div>
-
-        </div>
-    </div>
 
         <script type="module" src="/dist/login.js"></script>
 
